@@ -135,7 +135,7 @@ function Login({ done }: { done: () => Promise<void> }) {
     <main className="shell">
       <div className="card login">
         <div className="loginbrand">
-          <img src="/icon.svg" alt="" />
+          <img src="/logo.png" alt="" />
           <h1>Repère</h1>
         </div>
         <input
@@ -278,7 +278,7 @@ function App() {
       <main className="shell">
         <header className="top">
           <div className="brand">
-            <img className="mark" src="/icon.svg" alt="" />
+            <img className="mark" src="/logo.png" alt="" />
             <div>
               <b>Repère</b>
               <div className="muted">{titles[view]}</div>
