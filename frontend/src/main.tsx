@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  Download,
   Moon,
   Pencil,
   Pause,
@@ -69,22 +70,36 @@ const canQueue = (path: string, method: string) =>
   (path.startsWith("/drinks") ||
     path.startsWith("/days/sober") ||
     path.startsWith("/journal"));
+const requestId = () => {
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const value = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+  return `${value.slice(0, 4).join("")}-${value.slice(4, 6).join("")}-${value.slice(6, 8).join("")}-${value.slice(8, 10).join("")}-${value.slice(10).join("")}`;
+};
 const api = async (path: string, opts: RequestInit = {}) => {
   let r: Response;
   const method = opts.method || "GET";
-  const requestId = canQueue(path, method) ? crypto.randomUUID() : "";
+  const idempotencyKey = canQueue(path, method) ? requestId() : "";
   try {
     r = await fetch("/api" + path, {
       ...opts,
       headers: {
         "Content-Type": "application/json",
-        ...(requestId ? { "Idempotency-Key": requestId } : {}),
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
         ...opts.headers,
       },
     });
   } catch (error) {
     if (canQueue(path, method)) {
-      queueRequest(path, opts, requestId);
+      queueRequest(path, opts, idempotencyKey);
       return { queued: true };
     }
     throw error;
@@ -437,11 +452,11 @@ function Dashboard({
     if (move) await api(`/drinks/${drink.id}`, { method: "DELETE" });
     await refresh();
   };
-  const scheduleDelete = (drink: any) => {
+  const scheduleDelete = async (drink: any) => {
+    await api(`/drinks/${drink.id}`, { method: "DELETE" });
     setSelectedDayDrinks((rows) =>
       rows.filter((row: any) => row.id !== drink.id),
     );
-    void api(`/drinks/${drink.id}`, { method: "DELETE" });
     const timer = window.setTimeout(() => setPendingDelete(undefined), 10000);
     if (pendingDelete) {
       window.clearTimeout(pendingDelete.timer);
@@ -788,7 +803,7 @@ function Dashboard({
                       <button
                         className="iconbtn"
                         aria-label={`Supprimer ${drink.drink_name}`}
-                        onClick={() => scheduleDelete(drink)}
+                        onClick={() => void scheduleDelete(drink)}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -818,8 +833,8 @@ function Dashboard({
             <button
               className="dangerghost"
               onClick={async () => {
-                setSelectedDayStatus("no_data");
                 await api(`/days/sober/${selectedDate}`, { method: "DELETE" });
+                setSelectedDayStatus("no_data");
                 await refresh();
               }}
             >
@@ -1047,13 +1062,21 @@ function BacDayChart({ data }: { data: any }) {
 }
 function SoberCelebration({ data, close }: { data: any; close: () => void }) {
   return (
-    <div className="celebration" role="dialog" aria-modal="true">
+    <div
+      className="celebration"
+      role="dialog"
+      aria-modal="true"
+      onClick={close}
+    >
       <div className="fireworks" aria-hidden="true">
         {Array.from({ length: 28 }, (_, i) => (
           <i key={i} style={{ "--i": i } as React.CSSProperties} />
         ))}
       </div>
-      <div className="celebratecard">
+      <div
+        className="celebratecard"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="trophybig">
           <Trophy size={38} />
         </div>
@@ -1237,6 +1260,10 @@ function Stats({ stats }: { stats: any }) {
     [sessions, setSessions] = useState<any[]>([]),
     [trends, setTrends] = useState<any>(),
     [goals, setGoals] = useState<any[]>([]),
+    [comparison, setComparison] = useState<any>(),
+    [aiInsights, setAiInsights] = useState<any>(),
+    [aiLoading, setAiLoading] = useState(false),
+    [aiError, setAiError] = useState(""),
     [distributionMetric, setDistributionMetric] = useState<
       "standards" | "grams"
     >("standards");
@@ -1247,12 +1274,16 @@ function Stats({ stats }: { stats: any }) {
       api("/sessions"),
       api("/stats/trends"),
       api("/goals"),
-    ]).then(([a, h, s, t, g]) => {
+      api("/stats/compare?days=30"),
+      api("/stats/ai-insights/history"),
+    ]).then(([a, h, s, t, g, c, history]) => {
       setData(a);
       setHeat(h);
       setSessions(s);
       setTrends(t);
       setGoals(g);
+      setComparison(c);
+      if (history[0]) setAiInsights(history[0]);
     });
   }, [stats]);
   if (!data) return <div className="card">Chargement des analyses…</div>;
@@ -1260,6 +1291,12 @@ function Stats({ stats }: { stats: any }) {
     weekly = data.weekly || [],
     monthly = data.monthly || [],
     temporal = data.temporal || {},
+    quality = data.quality || {},
+    firstStart = data.first_start_analysis || {
+      points: [],
+      bins: [],
+      threshold_standards: 4,
+    },
     distributionHelp: Record<string, string> = {
       Moyenne:
         "Votre niveau moyen par journée observée. Elle sert à suivre l’évolution générale, mais peut être tirée vers le haut par quelques journées très élevées.",
@@ -1280,7 +1317,7 @@ function Stats({ stats }: { stats: any }) {
         "Votre journée observée la plus élevée. Sert à identifier l’ampleur de votre pic historique, sans en faire un record à battre.",
     };
   return (
-    <div className="grid">
+    <div className="grid stats-grid">
       <section className="card full">
         <div className="sectionhead">
           <div>
@@ -1341,6 +1378,141 @@ function Stats({ stats }: { stats: any }) {
           ))}
         </div>
       </section>
+      <section className="card full reductionoverview">
+        <div className="eyebrow">Vue d’ensemble de réduction</div>
+        <h2>Progression depuis le début du suivi</h2>
+        <div className="metrics">
+          <Metric
+            label="Moyenne globale"
+            value={`${(p.mean || 0).toFixed(1)} standards / jour`}
+          />
+          <Metric
+            label="Jours sobres"
+            value={`${quality.sober_days || 0} (${(quality.sober_percent || 0).toFixed(0)}%)`}
+          />
+          <Metric
+            label="Intensité avec alcool"
+            value={`${quality.alcohol_day_mean_standards == null ? "—" : quality.alcohol_day_mean_standards.toFixed(1)} standards`}
+          />
+          <Metric label="Jours avec alcool" value={quality.alcohol_days || 0} />
+          <Metric
+            label="Complétude"
+            value={`${(quality.completeness_percent || 0).toFixed(0)}%`}
+          />
+        </div>
+        <p className="muted">
+          Les journées sans donnée ne sont pas comptées. La moyenne globale et
+          l’intensité les jours avec alcool sont volontairement séparées.
+        </p>
+        <p className="muted">
+          7 derniers jours : {quality.recent_7?.sober_days || 0} jours sobres,
+          moyenne {(quality.recent_7?.mean_standards || 0).toFixed(2)}{" "}
+          standards/jour · période précédente :{" "}
+          {quality.previous_7?.sober_days || 0} jours sobres, moyenne{" "}
+          {(quality.previous_7?.mean_standards || 0).toFixed(2)}.
+        </p>
+      </section>
+      <section className="card full aiinsights">
+        <div className="eyebrow">Analyse automatisée</div>
+        <h2>Comprendre mes comportements</h2>
+        <p className="muted">
+          Une analyse OpenAI peut examiner les statistiques agrégées et proposer
+          une expérience simple. Elle ne remplace pas une analyse médicale et ne
+          prouve pas de causalité.
+        </p>
+        <button
+          className="add"
+          disabled={aiLoading}
+          onClick={async () => {
+            setAiLoading(true);
+            setAiError("");
+            try {
+              setAiInsights(
+                await api("/stats/ai-insights", { method: "POST" }),
+              );
+            } catch (error) {
+              setAiError(
+                error instanceof Error ? error.message : "Analyse indisponible",
+              );
+            } finally {
+              setAiLoading(false);
+            }
+          }}
+        >
+          {aiLoading ? "Analyse en cours…" : "Analyser mes tendances"}
+        </button>
+        {aiError && <p className="error">{aiError}</p>}
+        {aiInsights && (
+          <div className="airesult">
+            <small className="muted">
+              Analyse enregistrée le{" "}
+              {new Date(
+                aiInsights.generated_at || aiInsights.created_at,
+              ).toLocaleString("fr-CA")}
+            </small>
+            <p>
+              <b>{aiInsights.summary}</b>
+            </p>
+            <div className="aisignals">
+              {aiInsights.signals.map((signal: any, index: number) => (
+                <div key={`${signal.factor}-${index}`}>
+                  <b>{signal.factor}</b>
+                  <span>{signal.evidence}</span>
+                  <small>
+                    Confiance {signal.confidence} · {signal.sample_size}{" "}
+                    observations
+                  </small>
+                </div>
+              ))}
+            </div>
+            <div className="aiexperiment">
+              <b>Expérience proposée : {aiInsights.experiment.title}</b>
+              <span>
+                {aiInsights.experiment.duration_days} jours ·{" "}
+                {aiInsights.experiment.measure}
+              </span>
+              <ol>
+                {aiInsights.experiment.steps.map((step: string) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+              <small>
+                Critère de réussite : {aiInsights.experiment.success_criteria}
+              </small>
+            </div>
+            <div className="aicaveats">
+              <b>Limites</b>
+              {aiInsights.caveats.map((caveat: string) => (
+                <span key={caveat}>{caveat}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+      {comparison && (
+        <section className="card full">
+          <div className="eyebrow">Comparaison · 30 jours</div>
+          <h2>Période actuelle versus précédente</h2>
+          <div className="comparisongrid">
+            <Metric
+              label="Grammes"
+              value={`${comparison.change?.grams_percent == null ? "—" : `${comparison.change.grams_percent > 0 ? "+" : ""}${comparison.change.grams_percent.toFixed(0)}%`}`}
+            />
+            <Metric
+              label="Standards"
+              value={`${comparison.change?.standards_percent == null ? "—" : `${comparison.change.standards_percent > 0 ? "+" : ""}${comparison.change.standards_percent.toFixed(0)}%`}`}
+            />
+            <Metric
+              label="Consommations"
+              value={`${comparison.change?.drinks_percent == null ? "—" : `${comparison.change.drinks_percent > 0 ? "+" : ""}${comparison.change.drinks_percent.toFixed(0)}%`}`}
+            />
+            <Metric
+              label="Jours sobres"
+              value={`${comparison.change?.alcohol_free_days > 0 ? "+" : ""}${comparison.change?.alcohol_free_days || 0}`}
+            />
+          </div>
+        </section>
+      )}
       {trends && <MovingChart trends={trends} goals={goals} />}
       <section className="card full">
         <div className="eyebrow">Heatmap · grammes</div>
@@ -1437,7 +1609,387 @@ function Stats({ stats }: { stats: any }) {
             </div>
           ))}
         </div>
+        <h3>Par heure de début</h3>
+        <div className="chart-axis-note">
+          Hauteur = grammes d’alcool pur · axe horizontal = heure
+        </div>
+        <div className="hourbars">
+          {(temporal.by_hour || []).map((x: any) => (
+            <div
+              key={x.hour}
+              className="has-tip"
+              tabIndex={0}
+              aria-label={`${x.hour} h · ${x.grams.toFixed(1)} g · ${(x.drinks || 0).toFixed?.(2) || 0} consommations standards`}
+              data-tip={`${x.hour} h · ${x.grams.toFixed(1)} g · ${(x.drinks || 0).toFixed?.(2) || 0} consommations standards`}
+            >
+              <i
+                style={{
+                  height: `${Math.min(100, (x.grams / Math.max(...(temporal.by_hour || []).map((y: any) => y.grams), 1)) * 100)}%`,
+                }}
+              />
+              <span>{String(x.hour).padStart(2, "0")}</span>
+            </div>
+          ))}
+        </div>
+        <div className="timefacts">
+          <Metric
+            label={
+              <>
+                Première consommation habituelle
+                <span
+                  className="helpmark has-tip"
+                  tabIndex={0}
+                  aria-label="Comment est calculée la première consommation habituelle ?"
+                  data-tip="Médiane de l’heure de début de la première consommation de chaque journée avec alcool observée. Les journées sans donnée sont exclues."
+                >
+                  ?
+                </span>
+              </>
+            }
+            value={
+              temporal.first_drink_times?.length
+                ? temporal.first_drink_times.sort()[
+                    Math.floor(temporal.first_drink_times.length / 2)
+                  ]
+                : "—"
+            }
+          />
+          <Metric
+            label={
+              <>
+                Dernière consommation habituelle
+                <span
+                  className="helpmark has-tip"
+                  tabIndex={0}
+                  aria-label="Comment est calculée la dernière consommation habituelle ?"
+                  data-tip="Médiane de l’heure de fin de la dernière consommation de chaque journée avec alcool observée. Les journées sans donnée sont exclues."
+                >
+                  ?
+                </span>
+              </>
+            }
+            value={
+              temporal.last_drink_times?.length
+                ? temporal.last_drink_times.sort()[
+                    Math.floor(temporal.last_drink_times.length / 2)
+                  ]
+                : "—"
+            }
+          />
+        </div>
       </section>
+      <section className="card full firststart-analysis">
+        <div className="eyebrow">Analyse exploratoire</div>
+        <h2>Heure de première consommation</h2>
+        <p className="muted">
+          Chaque point représente une journée avec alcool. Le rouge indique une
+          journée au-dessus de {firstStart.threshold_standards} consommations
+          standards. Association statistique, pas preuve de causalité.
+        </p>
+        <div className="associationnotice">
+          <b>Indice d’association</b>
+          <span>
+            {firstStart.association?.standards?.strength || "insuffisant"}
+            {firstStart.association?.standards?.coefficient != null
+              ? ` · coefficient ${firstStart.association.standards.coefficient.toFixed(2)}`
+              : ""}
+          </span>
+          <small>
+            {firstStart.association?.standards?.reliable
+              ? firstStart.association.standards.direction
+              : `Seulement ${firstStart.association?.standards?.sample_size || 0} journées : il faut au moins 15 journées pour interpréter ce signal.`}
+          </small>
+        </div>
+        {firstStart.points.length ? (
+          <>
+            <div className="scatterchart">
+              <span className="scatter-ymax">
+                {Math.max(
+                  ...firstStart.points.map((x: any) => x.standards),
+                  firstStart.threshold_standards,
+                ).toFixed(1)}
+              </span>
+              <div
+                className="scatter-threshold"
+                style={{
+                  bottom: `${(firstStart.threshold_standards / Math.max(...firstStart.points.map((x: any) => x.standards), firstStart.threshold_standards)) * 100}%`,
+                }}
+              />
+              {firstStart.points.map((point: any) => {
+                const max = Math.max(
+                  ...firstStart.points.map((x: any) => x.standards),
+                  firstStart.threshold_standards,
+                );
+                return (
+                  <span
+                    key={point.date}
+                    className={`scatterpoint ${point.high ? "high" : ""} has-tip`}
+                    tabIndex={0}
+                    data-tip={`${point.date} · première consommation à ${point.first_hour.toFixed(1)} h · ${point.standards.toFixed(2)} standards`}
+                    style={{
+                      left: `${(point.first_hour / 24) * 100}%`,
+                      bottom: `${Math.max(1, (point.standards / max) * 100)}%`,
+                    }}
+                  />
+                );
+              })}
+              <div className="scatter-axis">
+                <span>00 h</span>
+                <span>06 h</span>
+                <span>12 h</span>
+                <span>18 h</span>
+                <span>24 h</span>
+              </div>
+            </div>
+            <div className="firststart-bins">
+              {firstStart.bins.map((bin: any) => (
+                <div key={bin.label}>
+                  <b>{bin.label}</b>
+                  <span>
+                    {bin.days
+                      ? `${bin.mean_standards.toFixed(2)} standards moyens`
+                      : "Aucune journée"}
+                  </span>
+                  <small>
+                    {bin.days
+                      ? `${bin.high_percent.toFixed(0)}% au-dessus du seuil · ${bin.days} journée${bin.days > 1 ? "s" : ""}`
+                      : "Pas assez de données"}
+                  </small>
+                </div>
+              ))}
+            </div>
+            <FirstStartMiniChart
+              points={firstStart.points}
+              metric="duration_hours"
+              title="Heure de première consommation → durée"
+              unit="h"
+            />
+            <FirstStartMiniChart
+              points={firstStart.points}
+              metric="standards_per_hour"
+              title="Heure de première consommation → vitesse"
+              unit=" standards/h"
+            />
+          </>
+        ) : (
+          <p className="muted">
+            Ajoutez des consommations pour voir cette relation.
+          </p>
+        )}
+      </section>
+      <AdvancedCharts charts={data.charts || {}} />
+    </div>
+  );
+}
+function AdvancedCharts({ charts }: { charts: any }) {
+  const heat = charts.weekday_hour || [],
+    distribution = charts.distribution || [],
+    nextDay = charts.next_day || [],
+    weekdayBox = charts.weekday_box || [],
+    behaviorAbv = charts.behavior_abv || [],
+    heatMax = Math.max(...heat.flatMap((row: any) => row.hours), 1),
+    distributionMax = Math.max(...distribution.map((row: any) => row.days), 1),
+    boxMax = Math.max(...weekdayBox.map((row: any) => row.maximum || 0), 1),
+    names = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+  return (
+    <>
+      <section className="card full">
+        <div className="eyebrow">Comportements associés</div>
+        <h2>Taux d’alcool présents les journées élevées</h2>
+        <p className="muted">
+          Une journée élevée signifie au moins 4 standards. Ce tableau décrit
+          une association et non une cause.
+        </p>
+        {behaviorAbv.length ? (
+          <div className="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ABV</th>
+                  <th>Journées</th>
+                  <th>Moyenne</th>
+                  <th>Journées élevées</th>
+                </tr>
+              </thead>
+              <tbody>
+                {behaviorAbv.map((row: any) => (
+                  <tr key={row.abv}>
+                    <td>{row.abv}</td>
+                    <td>{row.days}</td>
+                    <td>{row.mean_standards.toFixed(2)} standards</td>
+                    <td>
+                      {row.high_percent.toFixed(0)}% ({row.high_days})
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted">Pas assez de données.</p>
+        )}
+      </section>
+      <section className="card full">
+        <div className="eyebrow">Habitudes temporelles</div>
+        <h2>Consommation par jour et heure</h2>
+        <p className="muted">
+          Intensité en grammes d’alcool pur. Les cases vides correspondent à
+          zéro observé.
+        </p>
+        <div className="weekdayhour">
+          <div />
+          {Array.from({ length: 24 }, (_, hour) => (
+            <span key={hour}>
+              {hour % 3 === 0 ? `${String(hour).padStart(2, "0")} h` : ""}
+            </span>
+          ))}
+          {heat.map((row: any) => (
+            <React.Fragment key={row.weekday}>
+              <b>{names[row.weekday]}</b>
+              {row.hours.map((value: number, hour: number) => (
+                <i
+                  key={hour}
+                  className="has-tip"
+                  tabIndex={0}
+                  data-tip={`${names[row.weekday]} · ${hour} h · ${value.toFixed(1)} g`}
+                  style={{
+                    background: `color-mix(in srgb, var(--accent) ${Math.max(4, (value / heatMax) * 100)}%, var(--surface-subtle))`,
+                  }}
+                />
+              ))}
+            </React.Fragment>
+          ))}
+        </div>
+        <div className="chart-axis-note">
+          Couleur = grammes d’alcool pur · colonnes = heure de début
+        </div>
+      </section>
+      <section className="card full">
+        <div className="eyebrow">Distribution</div>
+        <h2>Répartition des journées</h2>
+        <div className="chart-axis-note">
+          Axe vertical = nombre de journées (maximum : {distributionMax})
+        </div>
+        <div className="distributionbars">
+          {distribution.map((row: any) => (
+            <div
+              key={row.label}
+              className="has-tip"
+              tabIndex={0}
+              aria-label={`${row.label} · ${row.days} journées`}
+              data-tip={`${row.label} · ${row.days} journées observées`}
+            >
+              <i style={{ height: `${(row.days / distributionMax) * 100}%` }} />
+              <b>{row.days}</b>
+              <span>{row.label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="card full">
+        <div className="eyebrow">Effet du lendemain</div>
+        <h2>Consommation d’un jour à l’autre</h2>
+        <p className="muted">
+          Chaque point compare une journée à la journée suivante; ce n’est pas
+          une causalité.
+        </p>
+        {nextDay.length ? (
+          <>
+            <div className="chart-axis-note">
+              Axe horizontal = standards aujourd’hui · axe vertical = standards
+              le lendemain
+            </div>
+            <div className="nextdaychart">
+              {nextDay.map((row: any) => (
+                <span
+                  key={row.date}
+                  className="nextdaypoint has-tip"
+                  tabIndex={0}
+                  data-tip={`${row.date} · ${row.standards.toFixed(2)} standards → ${row.next_standards.toFixed(2)} le lendemain`}
+                  style={{
+                    left: `${Math.min(100, (row.standards / Math.max(...nextDay.flatMap((x: any) => [x.standards, x.next_standards]), 1)) * 100)}%`,
+                    bottom: `${Math.min(100, (row.next_standards / Math.max(...nextDay.flatMap((x: any) => [x.standards, x.next_standards]), 1)) * 100)}%`,
+                  }}
+                />
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="muted">Pas assez de journées consécutives.</p>
+        )}
+      </section>
+      <section className="card full">
+        <div className="eyebrow">Variabilité par jour</div>
+        <h2>Distribution selon le jour de semaine</h2>
+        <div className="chart-axis-note">
+          Axe vertical = consommations standards · boîte = Q1–Q3 · trait =
+          médiane (maximum : {boxMax.toFixed(1)})
+        </div>
+        <div className="weekdaybox">
+          {weekdayBox.map((row: any) => (
+            <div
+              key={row.weekday}
+              className="has-tip"
+              tabIndex={0}
+              aria-label={`${names[row.weekday]} · ${row.days} journées · médiane ${(row.median || 0).toFixed(2)} standards`}
+              data-tip={`${names[row.weekday]} · ${row.days} journées · Q1 ${(row.q1 || 0).toFixed(2)} · médiane ${(row.median || 0).toFixed(2)} · Q3 ${(row.q3 || 0).toFixed(2)} standards`}
+            >
+              <span>{names[row.weekday]}</span>
+              <i
+                style={{
+                  bottom: `${((row.q1 || 0) / boxMax) * 100}%`,
+                  height: `${Math.max(2, (((row.q3 || 0) - (row.q1 || 0)) / boxMax) * 100)}%`,
+                }}
+              />
+              <b style={{ bottom: `${((row.median || 0) / boxMax) * 100}%` }} />{" "}
+              <small>{row.days} j</small>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+function FirstStartMiniChart({
+  points,
+  metric,
+  title,
+  unit,
+}: {
+  points: any[];
+  metric: "duration_hours" | "standards_per_hour";
+  title: string;
+  unit: string;
+}) {
+  const maximum = Math.max(...points.map((point) => point[metric]), 0.01);
+  return (
+    <div className="firststart-mini">
+      <h3>{title}</h3>
+      <div className="scatterchart">
+        <span className="scatter-ymax">
+          {maximum.toFixed(1)}
+          {unit}
+        </span>
+        {points.map((point) => (
+          <span
+            key={`${metric}-${point.date}`}
+            className={`scatterpoint ${point.high ? "high" : ""} has-tip`}
+            tabIndex={0}
+            data-tip={`${point.date} · première consommation à ${point.first_hour.toFixed(1)} h · ${point[metric].toFixed(2)}${unit}`}
+            style={{
+              left: `${(point.first_hour / 24) * 100}%`,
+              bottom: `${Math.max(1, (point[metric] / maximum) * 100)}%`,
+            }}
+          />
+        ))}
+        <div className="scatter-axis">
+          <span>00 h</span>
+          <span>06 h</span>
+          <span>12 h</span>
+          <span>18 h</span>
+          <span>24 h</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1446,6 +1998,25 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
     [metric, setMetric] = useState<"grams" | "standards">("grams"),
     allRows = trends.moving_averages["7"] || [],
     rows = observed === "all" ? allRows : allRows.slice(-Number(observed)),
+    rowsByDate = (window: string) =>
+      new Map<string, any>(
+        (trends.moving_averages[window] || []).map((row: any) => [
+          row.date,
+          row,
+        ]),
+      ),
+    linePoints = (window: string) => {
+      const lookup = rowsByDate(window);
+      return rows
+        .map((row: any, index: number) => {
+          const value = lookup.get(row.date)?.[metric];
+          return value == null
+            ? ""
+            : `${(index / Math.max(1, rows.length - 1)) * 100},${52 - (value / maximum) * 48}`;
+        })
+        .filter(Boolean)
+        .join(" ");
+    },
     applicableGoals = goals.filter(
       (goal) =>
         metric === "grams" && goal.kind === "max_moving_7_grams" && goal.active,
@@ -1455,6 +2026,8 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
         x[metric],
         x[metric === "grams" ? "daily_grams" : "daily_standards"],
       ]),
+      ...(trends.moving_averages["30"] || []).map((x: any) => x[metric]),
+      ...(trends.moving_averages["90"] || []).map((x: any) => x[metric]),
       ...applicableGoals.map((goal) => goal.target),
       0.01,
     ),
@@ -1513,6 +2086,8 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
           ))}
         </div>
         <svg viewBox="0 0 100 56" preserveAspectRatio="none">
+          <polyline className="moving30" points={linePoints("30")} />
+          <polyline className="moving90" points={linePoints("90")} />
           <polyline points={points} />
           {applicableGoals.map((goal) => (
             <line
@@ -1545,6 +2120,12 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
         <span>
           <i className="movingkey" /> Moyenne mobile 7 jours
         </span>
+        <span>
+          <i className="moving30key" /> Moyenne mobile 30 jours
+        </span>
+        <span>
+          <i className="moving90key" /> Moyenne mobile 90 jours
+        </span>
         {applicableGoals.map((goal) => (
           <span key={goal.id}>
             <i className="goalkey" /> Objectif {goal.target} g
@@ -1555,47 +2136,74 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
   );
 }
 function PeriodTable({ rows, type }: { rows: any[]; type: string }) {
+  const [metric, setMetric] = useState<"grams" | "standards">("grams"),
+    standards = metric === "standards",
+    unit = standards ? " standards" : " g",
+    format = (value: number) => `${value.toFixed(standards ? 2 : 1)}${unit}`;
   return (
-    <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Période</th>
-            <th>Total</th>
-            <th>Moy./jour</th>
-            <th>Sans alcool</th>
-            <th>Évolution</th>
-            <th>Moy. glissante</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.period_start} className={r.is_complete ? "" : "partial"}>
-              <td>
-                {r.period_start}
-                {r.is_current && <small> en cours</small>}
-              </td>
-              <td>{r.total_grams.toFixed(1)} g</td>
-              <td>{r.daily_mean.toFixed(1)} g</td>
-              <td>
-                {r.alcohol_free_days} (
-                {(r.alcohol_free_percent || 0).toFixed(0)}%)
-              </td>
-              <td>
-                {r.change_percent == null
-                  ? "—"
-                  : `${r.change_percent > 0 ? "+" : ""}${r.change_percent.toFixed(0)}%${r.comparison_basis === "same_elapsed_days" ? " à date" : ""}`}
-              </td>
-              <td>
-                {r[type === "week" ? "moving_4" : "moving_3"] == null
-                  ? "—"
-                  : `${r[type === "week" ? "moving_4" : "moving_3"].toFixed(1)} g`}
-              </td>
+    <>
+      <div className="segmented periodmetric" aria-label="Unité du tableau">
+        <button
+          className={metric === "grams" ? "active" : ""}
+          onClick={() => setMetric("grams")}
+        >
+          Grammes
+        </button>
+        <button
+          className={metric === "standards" ? "active" : ""}
+          onClick={() => setMetric("standards")}
+        >
+          Standards
+        </button>
+      </div>
+      <div className="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Période</th>
+              <th>Total</th>
+              <th>Moy./jour</th>
+              <th>Sans alcool</th>
+              <th>Évolution</th>
+              <th>Moy. glissante</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr
+                key={r.period_start}
+                className={r.is_complete ? "" : "partial"}
+              >
+                <td>
+                  {r.period_start}
+                  {r.is_current && <small> en cours</small>}
+                </td>
+                <td>{format(standards ? r.total_standards : r.total_grams)}</td>
+                <td>{format(standards ? r.standards.mean : r.daily_mean)}</td>
+                <td>
+                  {r.alcohol_free_days} (
+                  {(r.alcohol_free_percent || 0).toFixed(0)}%)
+                </td>
+                <td>
+                  {r.change_percent == null
+                    ? "—"
+                    : `${r.change_percent > 0 ? "+" : ""}${r.change_percent.toFixed(0)}%${r.comparison_basis === "same_elapsed_days" ? " à date" : ""}`}
+                </td>
+                <td>
+                  {r[type === "week" ? "moving_4" : "moving_3"] == null
+                    ? "—"
+                    : format(
+                        standards
+                          ? r[type === "week" ? "moving_4" : "moving_3"] / 13.45
+                          : r[type === "week" ? "moving_4" : "moving_3"],
+                      )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 function Success() {
@@ -2013,30 +2621,70 @@ function GoalEditor({
   );
 }
 function History() {
-  const [rows, setRows] = useState<any[]>([]),
+  const [result, setResult] = useState<any>({
+      items: [],
+      total: 0,
+      pages: 0,
+      summary: {},
+    }),
     [query, setQuery] = useState(""),
     [start, setStart] = useState(""),
     [end, setEnd] = useState(""),
+    [drinkType, setDrinkType] = useState(""),
+    [minAbv, setMinAbv] = useState(""),
+    [maxAbv, setMaxAbv] = useState(""),
+    [minStandards, setMinStandards] = useState(""),
+    [page, setPage] = useState(1),
+    [selected, setSelected] = useState<number[]>([]),
+    [editing, setEditing] = useState<any>(),
     [loading, setLoading] = useState(false);
-  const search = async () => {
+  const search = async (requestedPage = page) => {
     setLoading(true);
-    const params = new URLSearchParams();
+    const params = new URLSearchParams({
+      page: String(requestedPage),
+      page_size: "25",
+    });
     if (query) params.set("q", query);
     if (start) params.set("start", start);
     if (end) params.set("end", end);
-    params.set("limit", "1000");
-    setRows(await api(`/drinks?${params}`));
+    if (drinkType) params.set("drink_type", drinkType);
+    if (minAbv) params.set("min_abv", minAbv);
+    if (maxAbv) params.set("max_abv", maxAbv);
+    if (minStandards) params.set("min_standards", minStandards);
+    setResult(await api(`/drinks/search?${params}`));
+    setPage(requestedPage);
+    setSelected([]);
     setLoading(false);
   };
   useEffect(() => {
-    search();
+    search(1);
   }, []);
+  const toggle = (id: number) =>
+    setSelected((values) =>
+      values.includes(id)
+        ? values.filter((value) => value !== id)
+        : [...values, id],
+    );
+  const bulkDelete = async () => {
+    if (
+      !selected.length ||
+      !window.confirm(
+        `Supprimer ${selected.length} consommation${selected.length > 1 ? "s" : ""} ?`,
+      )
+    )
+      return;
+    await api("/drinks/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids: selected }),
+    });
+    await search(page);
+  };
   return (
     <div className="grid">
       <section className="card full">
         <div className="eyebrow">Toutes les données</div>
         <h1>Historique des consommations</h1>
-        <div className="form">
+        <div className="form historyfilters">
           <label className="wide">
             Recherche
             <input
@@ -2061,16 +2709,102 @@ function History() {
               onChange={(event) => setEnd(event.target.value)}
             />
           </label>
+          <label>
+            Type
+            <input
+              value={drinkType}
+              onChange={(event) => setDrinkType(event.target.value)}
+              placeholder="bière, vin…"
+            />
+          </label>
+          <label>
+            ABV minimum
+            <input
+              type="number"
+              step=".1"
+              value={minAbv}
+              onChange={(event) => setMinAbv(event.target.value)}
+            />
+          </label>
+          <label>
+            ABV maximum
+            <input
+              type="number"
+              step=".1"
+              value={maxAbv}
+              onChange={(event) => setMaxAbv(event.target.value)}
+            />
+          </label>
+          <label>
+            Standards minimum
+            <input
+              type="number"
+              step=".1"
+              value={minStandards}
+              onChange={(event) => setMinStandards(event.target.value)}
+            />
+          </label>
         </div>
         <div className="actions">
-          <button className="add" onClick={search}>
+          <button className="add" onClick={() => search(1)}>
             {loading ? "Recherche…" : "Rechercher"}
           </button>
         </div>
+        <div className="historysummary">
+          <Metric label="Résultats" value={result.total} />
+          <Metric
+            label="Alcool pur"
+            value={`${(result.summary.grams || 0).toFixed(1)} g`}
+          />
+          <Metric
+            label="Standards"
+            value={(result.summary.standards || 0).toFixed(2)}
+          />
+          <Metric
+            label="Consommations"
+            value={result.summary.consumptions || 0}
+          />
+        </div>
+        {selected.length > 0 && (
+          <div className="bulkactions">
+            <b>
+              {selected.length} sélectionnée{selected.length > 1 ? "s" : ""}
+            </b>
+            <a
+              className="ghost buttonlink"
+              href={`/api/drinks/export?ids=${selected.join(",")}`}
+            >
+              <Download size={16} /> Exporter
+            </a>
+            <button className="dangerghost" onClick={bulkDelete}>
+              Supprimer
+            </button>
+          </div>
+        )}
         <div className="tablewrap">
           <table>
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={
+                      result.items.length > 0 &&
+                      result.items.every((drink: any) =>
+                        selected.includes(drink.id),
+                      )
+                    }
+                    onChange={() =>
+                      setSelected(
+                        result.items.every((drink: any) =>
+                          selected.includes(drink.id),
+                        )
+                          ? []
+                          : result.items.map((drink: any) => drink.id),
+                      )
+                    }
+                  />
+                </th>
                 <th>Date</th>
                 <th>Consommation</th>
                 <th>Volume</th>
@@ -2079,8 +2813,18 @@ function History() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((drink) => (
-                <tr key={drink.id}>
+              {result.items.map((drink: any) => (
+                <tr
+                  key={drink.id}
+                  className={selected.includes(drink.id) ? "selectedrow" : ""}
+                >
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(drink.id)}
+                      onChange={() => toggle(drink.id)}
+                    />
+                  </td>
                   <td>
                     {new Date(drink.started_at).toLocaleString("fr-CA", {
                       dateStyle: "short",
@@ -2094,17 +2838,10 @@ function History() {
                   <td>{drink.canadian_standard_drinks.toFixed(2)}</td>
                   <td>
                     <button
-                      className="iconbtn"
-                      onClick={async () => {
-                        if (
-                          !window.confirm(`Supprimer « ${drink.drink_name} » ?`)
-                        )
-                          return;
-                        await api(`/drinks/${drink.id}`, { method: "DELETE" });
-                        await search();
-                      }}
+                      className="iconbutton"
+                      onClick={() => setEditing(drink)}
                     >
-                      <Trash2 size={16} />
+                      <Pencil size={16} />
                     </button>
                   </td>
                 </tr>
@@ -2112,7 +2849,44 @@ function History() {
             </tbody>
           </table>
         </div>
+        <div className="pagination">
+          <button
+            className="ghost"
+            disabled={page <= 1}
+            onClick={() => search(page - 1)}
+          >
+            <ChevronLeft size={16} /> Précédente
+          </button>
+          <span>
+            Page {page} / {Math.max(1, result.pages)}
+          </span>
+          <button
+            className="ghost"
+            disabled={page >= result.pages}
+            onClick={() => search(page + 1)}
+          >
+            Suivante <ChevronRight size={16} />
+          </button>
+        </div>
       </section>
+      {editing && (
+        <DrinkSheet
+          preset={{
+            id: editing.id,
+            name: editing.drink_name,
+            drink_type: editing.drink_type || "",
+            volume_ml: editing.volume_ml,
+            abv_percent: editing.abv_percent,
+          }}
+          day={String(editing.started_at).slice(0, 10)}
+          drink={editing}
+          close={() => setEditing(undefined)}
+          saved={async () => {
+            setEditing(undefined);
+            await search(page);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2135,7 +2909,10 @@ function Prefs({
     [gap, setGap] = useState(4),
     [currentPassword, setCurrentPassword] = useState(""),
     [newPassword, setNewPassword] = useState(""),
-    [accountMessage, setAccountMessage] = useState("");
+    [accountMessage, setAccountMessage] = useState(""),
+    [wearCode, setWearCode] = useState<any>(),
+    [wearDevices, setWearDevices] = useState<any[]>([]);
+  const loadWearDevices = () => api("/wear/devices").then(setWearDevices);
   useEffect(() => {
     api("/auth/me").then((x) => {
       setHour(x.day_start_hour);
@@ -2144,6 +2921,7 @@ function Prefs({
       setElim(x.elimination_rate);
       setGap(x.session_gap_hours);
     });
+    loadWearDevices();
   }, []);
   const save = async () => {
     await api("/settings", {
@@ -2272,6 +3050,59 @@ function Prefs({
             Enregistrer
           </button>
         </div>
+      </section>
+      <section className="card full">
+        <div className="eyebrow">Android et Wear OS</div>
+        <h2>Associer un appareil</h2>
+        <p className="muted">
+          Générez un code, puis saisissez l’adresse de ce serveur et le code
+          dans l’application Repère sur votre téléphone ou votre montre. Le code
+          expire après 10 minutes et ne fonctionne qu’une fois.
+        </p>
+        {wearCode && (
+          <div className="wearpaircode">
+            <span>Code d’association</span>
+            <strong>{wearCode.code}</strong>
+            <small>Expire dans 10 minutes</small>
+          </div>
+        )}
+        <div className="actions">
+          <button
+            className="add"
+            onClick={async () =>
+              setWearCode(await api("/wear/pairing-code", { method: "POST" }))
+            }
+          >
+            Générer un code
+          </button>
+        </div>
+        {wearDevices.length > 0 && (
+          <div className="devicelist">
+            {wearDevices.map((device) => (
+              <div key={device.id}>
+                <span>
+                  <b>{device.device_name}</b>
+                  <small>
+                    {device.last_used_at
+                      ? `Dernière activité : ${new Date(device.last_used_at).toLocaleString("fr-CA")}`
+                      : "Jamais utilisé"}
+                  </small>
+                </span>
+                <button
+                  className="dangerghost"
+                  onClick={async () => {
+                    await api(`/wear/devices/${device.id}`, {
+                      method: "DELETE",
+                    });
+                    await loadWearDevices();
+                  }}
+                >
+                  Révoquer
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       <section className="card full">
         <div className="eyebrow">Compte local</div>
