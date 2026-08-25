@@ -695,6 +695,6 @@ async def restore_backup(file:UploadFile=File(...),u:User=Depends(current_user))
 
 frontend=Path(__file__).resolve().parents[2]/"frontend"/"dist"
 if frontend.exists():
-    app.mount("/assets",StaticFiles(directory=frontend/"assets"),name="assets")
-    @app.get("/{path:path}")
-    def spa(path:str): return Response((frontend/"index.html").read_text(),media_type="text/html")
+    # Serve the complete Vite output, including favicon/PWA files at the root.
+    # API routes are declared above this mount and therefore keep precedence.
+    app.mount("/",StaticFiles(directory=frontend,html=True),name="frontend")
