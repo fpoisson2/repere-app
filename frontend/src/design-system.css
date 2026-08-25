@@ -1188,6 +1188,32 @@ th {
   text-align: center;
   text-overflow: ellipsis;
 }
+
+/* On narrow Android screens, keep the dock anchored to the left and let the
+   tabs scroll inside the viewport instead of widening the page. */
+@media (max-width: 600px) {
+  .nav {
+    left: max(8px, env(safe-area-inset-left));
+    right: auto;
+    width: auto;
+    max-width: calc(
+      100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)
+    );
+    transform: none;
+    display: flex;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
+  .nav button {
+    flex: 0 0 68px;
+    width: 68px;
+  }
+}
 .periodmetric {
   width: fit-content;
   margin: 0 0 12px auto;
