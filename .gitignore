@@ -1,0 +1,29 @@
+# Secrets and local configuration
+.env
+*.env.local
+*.sqlite
+*.sqlite-*
+
+# Python
+backend/.venv/
+backend/venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# JavaScript / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/*/build/
+android/local.properties
+
+# Runtime and deployment artifacts
+backups/
+*.tar.gz
+*.log
+.DS_Store

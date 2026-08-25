@@ -1,0 +1,1 @@
+.soberaction{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:15px;padding-top:15px;border-top:1px solid #29473f}.soberaction span{display:block;font-size:12px;margin-top:4px}.bar.no_data{background:#2a3c37;opacity:.38}.bar.sober{background:#4b6c62}@media(max-width:600px){.soberaction{align-items:flex-start;flex-direction:column}}

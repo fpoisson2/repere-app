@@ -1,0 +1,19 @@
+[Unit]
+Description=AlcoTrack self-hosted
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=alcoholtracker
+Group=alcoholtracker
+WorkingDirectory=/opt/alcohol-tracker
+EnvironmentFile=/etc/alcohol-tracker/app.env
+ExecStart=/opt/alcohol-tracker/.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/alcohol-tracker /var/log/alcohol-tracker
+[Install]
+WantedBy=multi-user.target
