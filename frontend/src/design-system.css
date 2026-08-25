@@ -47,6 +47,20 @@
   --shadow-overlay: 0 24px 70px rgba(10, 24, 18, 0.2);
   --focus: 0 0 0 3px rgba(19, 122, 90, 0.2);
 }
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+html {
+  overscroll-behavior-x: none;
+}
+.shell,
+.grid,
+.card {
+  min-width: 0;
+}
 
 :root[data-theme="dark"] {
   --accent: #62cda7;
