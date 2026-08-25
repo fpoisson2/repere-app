@@ -362,12 +362,22 @@ h2 {
 .modal {
   background: rgba(8, 14, 11, 0.62);
   backdrop-filter: blur(5px);
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    calc(16px + env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 200;
 }
 .sheet {
   color: var(--text);
   background: var(--surface-raised);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-overlay);
+  border-radius: 25px;
+  max-height: calc(100dvh - 32px);
 }
 .warning {
   color: var(--text-muted);
