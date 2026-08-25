@@ -382,16 +382,30 @@ h2 {
     calc(16px + env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   z-index: 200;
 }
 .sheet {
+  width: 100%;
+  max-width: 580px;
+  min-width: 0;
+  box-sizing: border-box;
   color: var(--text);
   background: var(--surface-raised);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-overlay);
   border-radius: 25px;
   max-height: calc(100dvh - 32px);
+  overflow-wrap: anywhere;
+}
+.sheet .actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .modal > .sheet {
+    max-width: calc(100vw - 32px);
+  }
 }
 .warning {
   color: var(--text-muted);
