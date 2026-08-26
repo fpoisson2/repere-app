@@ -1197,12 +1197,12 @@ th {
   left: 50%;
   right: auto;
   bottom: max(8px, env(safe-area-inset-bottom));
-  width: min(380px, calc(100vw - 16px));
+  width: min(520px, calc(100vw - 16px));
   max-width: calc(100vw - 16px);
   transform: translateX(-50%);
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0;
   padding: 4px;
   overflow: hidden;
@@ -1232,8 +1232,7 @@ th {
   text-overflow: ellipsis;
 }
 
-/* On narrow Android screens, keep the dock anchored to the left and let the
-   tabs scroll inside the viewport instead of widening the page. */
+/* Keep all six destinations visible without wrapping or horizontal scrolling. */
 @media (max-width: 600px) {
   .nav {
     left: max(8px, env(safe-area-inset-left));
@@ -1243,19 +1242,16 @@ th {
       100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)
     );
     transform: none;
-    display: flex;
-    justify-content: flex-start;
-    overflow-x: auto;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    overflow-x: hidden;
     overflow-y: hidden;
     scrollbar-width: none;
   }
   .nav::-webkit-scrollbar {
     display: none;
   }
-  .nav button {
-    flex: 0 0 68px;
-    width: 68px;
-  }
+  .nav button { width: 100%; padding-inline: 0; font-size: 9px; }
 }
 .periodmetric {
   width: fit-content;
