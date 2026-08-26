@@ -55,6 +55,15 @@ class Drink(Base):
     manual_session_id: Mapped[str | None] = mapped_column(String(36), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at_utc: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    ended_at_utc: Mapped[datetime | None] = mapped_column(DateTime)
+    local_date: Mapped[date | None] = mapped_column(Date, index=True)
+    timezone_id: Mapped[str | None] = mapped_column(String(64))
+    utc_offset_minutes: Mapped[int | None] = mapped_column(Integer)
+    display_quantity: Mapped[float | None] = mapped_column(Float)
+    display_unit: Mapped[str | None] = mapped_column(String(24))
+    planned_grams_snapshot: Mapped[float | None] = mapped_column(Float)
+    timezone_assumption: Mapped[str | None] = mapped_column(String(32))
 
 class WearPairingCode(Base):
     __tablename__ = "wear_pairing_codes"
@@ -128,3 +137,191 @@ class TrackedDay(Base):
     sober: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class DailyPlan(Base):
+    __tablename__ = "daily_plans"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    planned_grams: Mapped[float] = mapped_column(Float)
+    display_quantity: Mapped[float | None] = mapped_column(Float)
+    display_unit: Mapped[str | None] = mapped_column(String(24))
+    created_at_utc: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timezone_id: Mapped[str] = mapped_column(String(64), default="UTC")
+    supersedes_id: Mapped[int | None] = mapped_column(ForeignKey("daily_plans.id"))
+
+class EmaCheckIn(Base):
+    __tablename__ = "ema_check_ins"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    observed_at_utc: Mapped[datetime] = mapped_column(DateTime, index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    timezone_id: Mapped[str] = mapped_column(String(64))
+    phase: Mapped[str] = mapped_column(String(24), default="pre_drinking")
+    craving: Mapped[int]
+    confidence: Mapped[int | None]
+    stress: Mapped[int | None]
+    positive_affect: Mapped[int | None]
+    negative_affect: Mapped[int | None]
+    fatigue: Mapped[int | None]
+    notes: Mapped[str | None] = mapped_column(Text)
+    post_onset: Mapped[bool | None] = mapped_column(Boolean)
+    source: Mapped[str] = mapped_column(String(24), default="web")
+    schema_version: Mapped[str] = mapped_column(String(24), default="ema-v1")
+    created_at_utc: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ContextObservation(Base):
+    __tablename__ = "context_observations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    check_in_id: Mapped[str] = mapped_column(ForeignKey("ema_check_ins.id", ondelete="CASCADE"), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    observed_at_utc: Mapped[datetime]
+    social_context: Mapped[str] = mapped_column(String(32))
+    others_drinking: Mapped[str] = mapped_column(String(12))
+    alcohol_available: Mapped[bool]
+    event_type: Mapped[str | None] = mapped_column(String(80))
+
+class HealthDailyAggregate(Base):
+    __tablename__ = "health_daily_aggregates"
+    __table_args__ = (UniqueConstraint("user_id", "local_date", "record_type", "origin_package", name="uq_health_daily_origin"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    record_type: Mapped[str] = mapped_column(String(48))
+    value: Mapped[float | None] = mapped_column(Float)
+    unit: Mapped[str] = mapped_column(String(24))
+    window_start_utc: Mapped[datetime]
+    window_end_utc: Mapped[datetime]
+    origin_package: Mapped[str] = mapped_column(String(160))
+    origin_device: Mapped[str | None] = mapped_column(String(160))
+    aggregation_method: Mapped[str] = mapped_column(String(32))
+    imported_at_utc: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class HealthDataQuality(Base):
+    __tablename__ = "health_data_quality"
+    __table_args__ = (UniqueConstraint("user_id", "local_date", "record_type", name="uq_health_quality_day"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    record_type: Mapped[str] = mapped_column(String(48))
+    coverage_ratio: Mapped[float | None] = mapped_column(Float)
+    sample_count: Mapped[int] = mapped_column(default=0)
+    expected_window_minutes: Mapped[int | None]
+    observed_minutes: Mapped[int | None]
+    quality_flags: Mapped[list] = mapped_column(JSON, default=list)
+
+class DerivedDailyFeature(Base):
+    __tablename__ = "derived_daily_features"
+    __table_args__ = (UniqueConstraint("user_id", "local_date", "cutoff_at_utc", "feature_definition_version", name="uq_derived_feature_version"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    cutoff_at_utc: Mapped[datetime] = mapped_column(DateTime, index=True)
+    feature_definition_version: Mapped[str] = mapped_column(String(32))
+    values: Mapped[dict] = mapped_column(JSON)
+    source_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default="final")
+    computed_at_utc: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class DrinkingEpisode(Base):
+    __tablename__ = "drinking_episodes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    started_at_utc: Mapped[datetime] = mapped_column(DateTime, index=True)
+    ended_at_utc: Mapped[datetime]
+    amplitude_grams: Mapped[float]
+    duration_minutes: Mapped[int]
+    baseline_grams: Mapped[float | None]
+    cumulative_excess_grams: Mapped[float]
+    definition_version: Mapped[str] = mapped_column(String(32))
+
+class RecoveryEpisode(Base):
+    __tablename__ = "recovery_episodes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    drinking_episode_id: Mapped[int] = mapped_column(ForeignKey("drinking_episodes.id", ondelete="CASCADE"), unique=True)
+    recovered_at_utc: Mapped[datetime | None]
+    recovery_days: Mapped[float | None]
+    status: Mapped[str] = mapped_column(String(20))
+    definition_version: Mapped[str] = mapped_column(String(32))
+
+class ModelVersion(Base):
+    __tablename__ = "model_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    outcome_kind: Mapped[str] = mapped_column(String(48))
+    model_kind: Mapped[str] = mapped_column(String(48))
+    feature_definition_version: Mapped[str] = mapped_column(String(32))
+    threshold: Mapped[float | None] = mapped_column(Float)
+    calibration_start: Mapped[date | None]
+    calibration_end: Mapped[date | None]
+    holdout_start: Mapped[date | None]
+    holdout_end: Mapped[date | None]
+    holdout_frozen: Mapped[bool] = mapped_column(Boolean, default=True)
+    artifact: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at_utc: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class Prediction(Base):
+    __tablename__ = "predictions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    model_version_id: Mapped[int | None] = mapped_column(ForeignKey("model_versions.id"))
+    target_local_date: Mapped[date] = mapped_column(Date, index=True)
+    predicted_at_utc: Mapped[datetime] = mapped_column(DateTime, index=True)
+    cutoff_at_utc: Mapped[datetime]
+    outcome_kind: Mapped[str] = mapped_column(String(48))
+    probability: Mapped[float | None] = mapped_column(Float)
+    predicted_value: Mapped[float | None] = mapped_column(Float)
+    explanation: Mapped[dict] = mapped_column(JSON, default=dict)
+
+class InterventionDecision(Base):
+    __tablename__ = "intervention_decisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    check_in_id: Mapped[str | None] = mapped_column(ForeignKey("ema_check_ins.id", ondelete="SET NULL"))
+    decided_at_utc: Mapped[datetime] = mapped_column(DateTime, index=True)
+    decision: Mapped[str] = mapped_column(String(32))
+    rule_id: Mapped[str | None] = mapped_column(String(64))
+    rule_version: Mapped[str] = mapped_column(String(24))
+    explanation: Mapped[dict] = mapped_column(JSON, default=dict)
+
+class InterventionExposure(Base):
+    __tablename__ = "intervention_exposures"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    decision_id: Mapped[str] = mapped_column(ForeignKey("intervention_decisions.id", ondelete="CASCADE"), index=True)
+    exposed_at_utc: Mapped[datetime | None]
+    response: Mapped[str | None] = mapped_column(String(32))
+
+class Outcome(Base):
+    __tablename__ = "outcomes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    local_date: Mapped[date] = mapped_column(Date, index=True)
+    kind: Mapped[str] = mapped_column(String(48))
+    value: Mapped[float | None] = mapped_column(Float)
+    observed: Mapped[bool] = mapped_column(Boolean, default=True)
+    definition_version: Mapped[str] = mapped_column(String(32))
+
+class ConsentAndPermissionState(Base):
+    __tablename__ = "consent_permission_states"
+    __table_args__ = (UniqueConstraint("user_id", "permission_type", name="uq_consent_permission"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    permission_type: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24))
+    history_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    background_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    consent_version: Mapped[str] = mapped_column(String(24), default="v1")
+    decided_at_utc: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class JitaiConfig(Base):
+    __tablename__ = "jitai_configs"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    craving_threshold: Mapped[int] = mapped_column(default=7)
+    confidence_threshold: Mapped[int] = mapped_column(default=4)
+    max_notifications_per_week: Mapped[int] = mapped_column(default=3)
+    cooldown_hours: Mapped[int] = mapped_column(default=24)
+    recovery_rule_enabled: Mapped[bool] = mapped_column(Boolean, default=True)

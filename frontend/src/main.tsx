@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
+  BrainCircuit,
   BarChart3,
   ChevronLeft,
   ChevronRight,
@@ -39,7 +40,7 @@ type Preset = {
   volume_ml: number;
   abv_percent: number;
 };
-type View = "now" | "stats" | "success" | "goals" | "settings" | "history";
+type View = "now" | "stats" | "insights" | "success" | "goals" | "settings" | "history";
 type QueuedRequest = {
   id: string;
   path: string;
@@ -171,12 +172,8 @@ function App() {
     [presets, setPresets] = useState<Preset[]>(() =>
       JSON.parse(localStorage.getItem("repere-presets") || "[]"),
     ),
-    [stats, setStats] = useState<any>(() =>
-      JSON.parse(localStorage.getItem("repere-stats") || "null"),
-    ),
-    [bac, setBac] = useState<any>(() =>
-      JSON.parse(localStorage.getItem("repere-bac") || "null"),
-    ),
+    [stats, setStats] = useState<any>(null),
+    [bac, setBac] = useState<any>(null),
     [modal, setModal] = useState<Preset | null>(null),
     [addMenu, setAddMenu] = useState(false),
     [moodModal, setMoodModal] = useState(false),
@@ -206,8 +203,8 @@ function App() {
       setStats(s);
       setBac(b);
       localStorage.setItem("repere-presets", JSON.stringify(p));
-      localStorage.setItem("repere-stats", JSON.stringify(s));
-      localStorage.setItem("repere-bac", JSON.stringify(b));
+      localStorage.removeItem("repere-stats");
+      localStorage.removeItem("repere-bac");
     } catch {
       if (navigator.onLine) setAuth(false);
     } finally {
@@ -268,6 +265,7 @@ function App() {
   const titles = {
     now: "Tableau personnel",
     stats: "Statistiques",
+    insights: "Repères personnels",
     success: "Succès",
     goals: "Objectifs",
     settings: "Réglages",
@@ -318,6 +316,8 @@ function App() {
           />
         ) : view === "stats" ? (
           <Stats stats={stats} />
+        ) : view === "insights" ? (
+          <PersonalInsights />
         ) : view === "success" ? (
           <Success />
         ) : view === "goals" ? (
@@ -342,6 +342,7 @@ function App() {
           [
             ["now", Activity, "Maintenant"],
             ["stats", BarChart3, "Stats"],
+            ["insights", BrainCircuit, "Repères"],
             ["success", Trophy, "Succès"],
             ["goals", Target, "Objectifs"],
             ["settings", Settings, "Réglages"],
@@ -379,7 +380,7 @@ function App() {
         />
       )}
       {moodModal && (
-        <MoodModal day={selectedDate} close={() => setMoodModal(false)} />
+        <CheckInModal day={selectedDate} close={() => setMoodModal(false)} />
       )}
     </>
   );
@@ -605,9 +606,9 @@ function Dashboard({
           <button
             className="moodbutton"
             onClick={mood}
-            aria-label="Consigner mon état"
+            aria-label="Faire mon check-in avant de boire"
           >
-            <Smile size={20} />
+            <BrainCircuit size={20} />
           </button>
           <button className="add" onClick={add}>
             <Plus size={17} /> Ajouter à cette journée
@@ -3164,77 +3165,103 @@ function Prefs({
     </div>
   );
 }
-function MoodModal({ day, close }: { day: string; close: () => void }) {
-  const [mood, setMood] = useState(3),
-    [stress, setStress] = useState(3),
-    [fatigue, setFatigue] = useState(3),
-    [craving, setCraving] = useState(3),
+function CheckInModal({ day, close }: { day: string; close: () => void }) {
+  const [craving, setCraving] = useState(5),
+    [confidence, setConfidence] = useState(5),
+    [planned, setPlanned] = useState(0),
+    [social, setSocial] = useState("alone"),
+    [others, setOthers] = useState("unknown"),
+    [available, setAvailable] = useState(false),
+    [extended, setExtended] = useState(false),
+    [stress, setStress] = useState(5),
+    [positiveAffect, setPositiveAffect] = useState(5),
+    [negativeAffect, setNegativeAffect] = useState(5),
+    [fatigue, setFatigue] = useState(5),
+    [eventType, setEventType] = useState(""),
     [notes, setNotes] = useState(""),
-    [saved, setSaved] = useState(false);
+    [saved, setSaved] = useState(false),
+    [error, setError] = useState(""),
+    [intervention, setIntervention] = useState<any>();
   const submit = async () => {
-    await api("/journal", {
-      method: "POST",
-      body: JSON.stringify({
-        day,
-        mood,
-        stress,
-        fatigue,
-        craving,
-        notes,
-        tags: [],
-      }),
-    });
-    setSaved(true);
-    setTimeout(close, 700);
+    setError("");
+    try {
+      const result = await api("/check-ins", {
+        method: "POST",
+        body: JSON.stringify({
+          observed_at: new Date().toISOString(), local_date: day,
+          timezone_id: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          craving, confidence, planned_grams: planned * 13.45,
+          display_quantity: planned, display_unit: "standard_ca",
+          social_context: social, others_drinking: others,
+          alcohol_available: available,
+          ...(extended ? { stress, positive_affect: positiveAffect,
+            negative_affect: negativeAffect, fatigue,
+            event_type: eventType || null, notes: notes || null } : {}),
+        }),
+      });
+      setSaved(true);
+      if (result?.decision?.kind === "offer") setIntervention(result.decision);
+      else setTimeout(close, 550);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Enregistrement impossible");
+    }
   };
+  const segments = (value:string,setter:(x:string)=>void,choices:[string,string][]) => (
+    <div className="checksegments">{choices.map(([id,label]) =>
+      <button type="button" key={id} className={value===id?"active":""} onClick={()=>setter(id)}>{label}</button>)}</div>
+  );
   return (
     <div className="modal" onClick={close}>
       <div className="sheet moodmodal" onClick={(e) => e.stopPropagation()}>
         <div className="trophybig">
-          <Smile size={38} />
+          <BrainCircuit size={38} />
         </div>
-        <div className="eyebrow">
-          Journal · {new Date(`${day}T12:00:00`).toLocaleDateString("fr-CA")}
-        </div>
-        <h2>Comment vous sentiez-vous cette journée-là ?</h2>
-        <div className="form">
-          {[
-            ["Humeur", mood, setMood],
-            ["Stress", stress, setStress],
-            ["Fatigue", fatigue, setFatigue],
-            ["Envie de boire", craving, setCraving],
-          ].map(([label, value, setter]: any) => (
-            <label key={label}>
-              {label} : <b>{value}/5</b>
-              <input
-                type="range"
-                min="1"
-                max="5"
-                value={value}
-                onChange={(e) => setter(+e.target.value)}
-              />
-            </label>
-          ))}
-          <label className="wide">
-            Notes
-            <input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Contexte, déclencheurs, ressenti…"
-            />
-          </label>
-        </div>
-        <div className="actions">
+        <div className="eyebrow">Check-in avant de boire · {new Date(`${day}T12:00:00`).toLocaleDateString("fr-CA")}</div>
+        <h2>Mon intention maintenant</h2>
+        {!intervention ? <div className="checkinform">
+          <label>Envie de boire <b>{craving}/10</b><input type="range" min="0" max="10" value={craving} onChange={e=>setCraving(+e.target.value)}/></label>
+          <label>Confiance de respecter mon intention <b>{confidence}/10</b><input type="range" min="0" max="10" value={confidence} onChange={e=>setConfidence(+e.target.value)}/></label>
+          <label>Quantité prévue <span className="quantityinput"><input type="number" min="0" max="50" step="0.5" value={planned} onChange={e=>setPlanned(+e.target.value)}/> standards canadiens</span></label>
+          <fieldset><legend>Avec qui ?</legend>{segments(social,setSocial,[["alone","Seul·e"],["partner_family","Partenaire/famille"],["friends","Amis"],["colleagues_event","Collègues/événement"]])}</fieldset>
+          <fieldset><legend>D’autres personnes boivent ?</legend>{segments(others,setOthers,[["no","Non"],["yes","Oui"],["unknown","Inconnu"]])}</fieldset>
+          <fieldset><legend>Alcool disponible ?</legend>{segments(String(available),x=>setAvailable(x==="true"),[["false","Non"],["true","Oui"]])}</fieldset>
+          <button className="ghost wide" type="button" onClick={()=>setExtended(!extended)}>{extended?"Masquer le contexte étendu":"Ajouter du contexte (facultatif)"}</button>
+          {extended && <div className="extendedcheckin">
+            {[["Stress",stress,setStress],["Affect positif / activation",positiveAffect,setPositiveAffect],["Affect négatif",negativeAffect,setNegativeAffect],["Fatigue",fatigue,setFatigue]].map(([label,value,setter]:any)=><label key={label}>{label} <b>{value}/10</b><input type="range" min="0" max="10" value={value} onChange={e=>setter(+e.target.value)}/></label>)}
+            <label>Type d’événement<input value={eventType} onChange={e=>setEventType(e.target.value)} placeholder="Facultatif"/></label>
+            <label>Notes<input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Contexte utile…"/></label>
+          </div>}
+        </div> : <div className="interventionoffer"><h3>Veux-tu confirmer ton intention ?</h3><p>Ton envie est élevée et ta confiance est plus basse en ce moment. Tu peux garder ton objectif prévu, le réduire, ou simplement fermer ce rappel.</p><button className="add" onClick={async()=>{await api(`/interventions/${intervention.id}/exposure`,{method:"POST",body:JSON.stringify({response:"accepted"})});close()}}>Confirmer mon intention</button><button className="ghost" onClick={async()=>{await api(`/interventions/${intervention.id}/exposure`,{method:"POST",body:JSON.stringify({response:"not_now"})});close()}}>Pas maintenant</button></div>}
+        {error && <p className="error">{error}</p>}
+        {!intervention && <div className="actions">
           <button className="ghost" onClick={close}>
             Annuler
           </button>
           <button className="add" onClick={submit}>
             {saved ? "Enregistré ✓" : "Enregistrer"}
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   );
+}
+
+function PersonalInsights() {
+  const [data,setData]=useState<any>(); const [quality,setQuality]=useState<any[]>([]); const [jitai,setJitai]=useState<any>(); const [permissions,setPermissions]=useState<any[]>([]); const [prediction,setPrediction]=useState<any>(); const [episodeData,setEpisodeData]=useState<any>({episodes:[]}); const [models,setModels]=useState<any[]>([]);
+  const load=()=>Promise.all([api("/analytics/personal"),api("/data-quality"),api("/jitai/config"),api("/health-connect/permissions"),api("/predictions/latest"),api("/episodes"),api("/models")]).then(([a,q,j,p,r,e,m])=>{setData(a);setQuality(q);setJitai(j);setPermissions(p);setPrediction(r);setEpisodeData(e);setModels(m)});
+  useEffect(()=>{load()},[]);
+  if(!data||!jitai)return <section className="card full"><p className="muted">Calcul des repères personnels…</p></section>;
+  return <div className="grid insightsview">
+    <section className="card full"><div className="eyebrow">Analyse longitudinale</div><h1>Mes repères personnels</h1><p className="muted">{data.disclaimer}</p><div className="metrics"><Metric label="Jours disponibles" value={data.days_available}/><Metric label="Dépassements observés" value={data.events_available}/><Metric label="Phase" value={data.model_readiness.regularized_model?"Modèle personnel":data.model_readiness.associations?"Associations":"Calibration"}/></div></section>
+    <section className="card full"><h2>Déclencheurs associés</h2><div className="associationgrid">{data.associations.map((x:any)=><article key={x.factor}><strong>{x.language||"Pas encore assez de données"}</strong><p className="muted">{x.sample_size} observations{x.coefficient!=null?` · association ${x.coefficient.toFixed(2)}`:""}</p></article>)}</div></section>
+    <section className="card third"><h2>Épisodes et récupération</h2><strong>{episodeData.episodes.length} épisode(s) personnel(s)</strong>{episodeData.episodes.slice(0,3).map((e:any)=><p key={e.date} className="muted">{e.date} · {e.total_grams.toFixed(1)} g · récupération {e.recovery_days==null?"en cours":`${e.recovery_days} j`}</p>)}{!episodeData.episodes.length&&<p className="muted">Ils apparaîtront après une référence suffisante. Aucun seuil populationnel n’est imposé.</p>}</section>
+    <section className="card third"><h2>Qualité des données</h2><strong>{quality.length} journées Health Connect</strong><p className="muted">Une donnée absente reste absente et n’est jamais interprétée comme zéro.</p></section>
+    <section className="card third"><h2>Modèle personnel</h2><ul><li>Descriptif : {data.model_readiness.descriptive?"prêt":"calibration"}</li><li>Associations : {data.model_readiness.associations?"prêtes":"calibration"}</li><li>Modèle régularisé : {data.model_readiness.regularized_model?"prêt":"désactivé"}</li><li>Temporel : {data.model_readiness.temporal_model?"admissible":"désactivé"}</li></ul>{models[0]&&<p className="muted">Holdout figé {models[0].holdout_start} → {models[0].holdout_end}<br/>Brier : {models[0].metrics?.history_weekday?.brier?.toFixed(3) ?? "n/d"} · AUROC : {models[0].metrics?.history_weekday?.auroc?.toFixed(3) ?? "n/d"}</p>}</section>
+    <section className="card full"><h2>Interventions au bon moment</h2><label className="settingtoggle"><input type="checkbox" checked={jitai.enabled} onChange={async e=>{await api("/jitai/config",{method:"PATCH",body:JSON.stringify({enabled:e.target.checked})});load()}}/> Activer les propositions explicables</label><p className="muted">Maximum {jitai.max_notifications_per_week} par semaine. « Pas maintenant » reste toujours disponible. Aucune politique apprise n’est activée.</p></section>
+    <section className="card full"><h2>Pourquoi ce risque ?</h2>{prediction?<><strong>{Math.round(prediction.probability*100)} % de risque estimé</strong><p className="muted">{prediction.explanation.summary}</p></>:<p className="muted">Aucune prédiction : Repère attend une validation chronologique suffisante.</p>}</section>
+    <section className="card full"><h2>Health Connect et permissions</h2><div className="permissiongrid">{permissions.map((p:any)=><span key={p.type}>{p.type} · <b>{p.status}</b></span>)}</div><p className="muted">Les autorisations se donnent séparément dans le compagnon Android. Historique et arrière-plan restent deux opt-ins supplémentaires.</p></section>
+    <section className="card full"><h2>Contrôle des données</h2><div className="actions"><a className="ghost buttonlink" href="/api/privacy/export">Exporter mes données d’analyse</a><button className="ghost" onClick={async()=>{if(confirm("Supprimer définitivement le compte et toutes ses données ? Cette action est irréversible.")){await api("/privacy/all-data",{method:"DELETE"});localStorage.clear();location.reload()}}}>Supprimer complètement mes données</button></div></section>
+  </div>
 }
 function AddMenu({
   presets,

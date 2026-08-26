@@ -12,13 +12,15 @@ from sqlalchemy.orm import Session
 from . import __version__
 from .auth import current_user, hash_password, verify_password, wear_user
 from .db import Base, engine, get_db
-from .models import AiInsight, Drink, Goal, ImportBatch, Journal, Preset, TrackedDay, User, WearPairingCode, WearToken
+from .models import AiInsight, DailyPlan, Drink, Goal, ImportBatch, Journal, Preset, TrackedDay, User, WearPairingCode, WearToken
 from .schemas import DrinkIn, DrinkOut, Login, SettingsPatch
 from .services import (aggregate_periods, alcohol, bac_at, bac_projection, compare_series,
  daily_series, import_csv, key_for, pearson, period_stats, reduction_records, sessions, spearman, temporal_stats)
 from .settings import settings
+from .longitudinal import router as longitudinal_router
 
 app=FastAPI(title="Repère", version=__version__)
+app.include_router(longitudinal_router)
 login_attempts={}
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=[x.strip() for x in settings.trusted_hosts.split(",")])
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, https_only=settings.secure_cookies,
@@ -39,7 +41,8 @@ def health(db:Session=Depends(get_db)):
     try: db.execute(text("SELECT 1")); database="ok"
     except Exception: database="error"
     storage=os.access(settings.data_dir,os.W_OK)
-    return {"status":"healthy" if database=="ok" and storage else "degraded","version":__version__,"database":database,"database_version":"1","storage":"ok" if storage else "error"}
+    revision=db.scalar(text("SELECT version_num FROM alembic_version")) if database=="ok" else None
+    return {"status":"healthy" if database=="ok" and storage else "degraded","version":__version__,"database":database,"database_version":revision,"storage":"ok" if storage else "error"}
 
 @app.post("/api/auth/register")
 def register(data:Login, request:Request, db:Session=Depends(get_db)):
@@ -168,10 +171,15 @@ def add_drink(data:DrinkIn,idempotency_key:str|None=Header(None,alias="Idempoten
     grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity)
     ended=data.started_at+timedelta(minutes=data.duration_minutes)
     dedupe=f"manual:{idempotency_key}" if idempotency_key else key_for("manual",None,[data.started_at.isoformat(),data.drink_name,data.volume_ml,data.abv_percent,data.duration_minutes,datetime.utcnow().isoformat()])
-    d=Drink(**data.model_dump(),user_id=u.id,ended_at=ended,dedupe_key=dedupe,alcohol_grams=grams,
-            canadian_standard_drinks=standard,source_icon=None,import_source=None,external_id=None,import_batch_id=None)
-    db.add(d)
     day=(data.started_at-timedelta(hours=u.day_start_hour)).date()
+    plan=db.scalar(select(DailyPlan).where(DailyPlan.user_id==u.id,DailyPlan.local_date==day,
+        DailyPlan.created_at_utc<=data.started_at).order_by(DailyPlan.created_at_utc.desc()))
+    d=Drink(**data.model_dump(),user_id=u.id,ended_at=ended,dedupe_key=dedupe,alcohol_grams=grams,
+            canadian_standard_drinks=standard,source_icon=None,import_source=None,external_id=None,import_batch_id=None,
+            started_at_utc=data.started_at,ended_at_utc=ended,local_date=day,
+            planned_grams_snapshot=plan.planned_grams if plan else None,
+            timezone_assumption=None if data.timezone_id else "legacy_local_time")
+    db.add(d)
     if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date): u.tracking_start_date=day
     db.commit(); db.refresh(d); return d
 
@@ -182,6 +190,8 @@ def update_drink(drink_id:int,data:DrinkIn,u:User=Depends(current_user),db:Sessi
     grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity)
     for key,value in data.model_dump().items():setattr(d,key,value)
     d.ended_at=data.started_at+timedelta(minutes=data.duration_minutes)
+    d.started_at_utc=data.started_at;d.ended_at_utc=d.ended_at
+    d.local_date=(data.started_at-timedelta(hours=u.day_start_hour)).date()
     d.alcohol_grams=grams;d.canadian_standard_drinks=standard
     db.commit();db.refresh(d);return d
 
@@ -685,8 +695,9 @@ async def restore_backup(file:UploadFile=File(...),u:User=Depends(current_user))
         tables={row[0] for row in candidate.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"users","drinks","goals","alembic_version"}.issubset(tables):raise HTTPException(422,"Sauvegarde Repère invalide")
         version=candidate.execute("SELECT version_num FROM alembic_version").fetchone()
-        if not version or version[0]!="0004":raise HTTPException(422,"Version de sauvegarde incompatible")
-        live_path=sqlite_path();backup_dir=Path(settings.data_dir)/"backups";backup_dir.mkdir(parents=True,exist_ok=True)
+        live_path=sqlite_path();live_version=sqlite3.connect(live_path).execute("SELECT version_num FROM alembic_version").fetchone()
+        if not version or not live_version or version[0]!=live_version[0]:raise HTTPException(422,f"Version de sauvegarde incompatible (attendue: {live_version[0] if live_version else 'inconnue'})")
+        backup_dir=Path(settings.data_dir)/"backups";backup_dir.mkdir(parents=True,exist_ok=True)
         current=sqlite3.connect(live_path);safety=sqlite3.connect(backup_dir/f"pre-restore-{datetime.now().strftime('%Y-%m-%d-%H%M%S')}.sqlite")
         current.backup(safety);safety.close();candidate.backup(current);current.close();candidate.close()
         return {"status":"restored","safety_backup":str(backup_dir)}

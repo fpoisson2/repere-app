@@ -733,6 +733,11 @@ th {
 .badge progress {
   accent-color: var(--accent);
 }
+.checkinform{display:grid;gap:16px}.checkinform label{display:grid;gap:7px;color:var(--muted,#98afa8)}
+.checkinform input[type="range"]{width:100%;accent-color:#1bd19b}.checkinform fieldset{border:0;padding:0;margin:0}.checkinform legend{margin-bottom:7px;color:#98afa8}
+.checksegments{display:flex;flex-wrap:wrap;gap:7px}.checksegments button{color:#c8d8d3;background:#0a1d18;border:1px solid #315047;border-radius:12px;padding:10px 12px}.checksegments button.active{color:#102016;background:#d9ff70;border-color:#d9ff70;font-weight:700}
+.quantityinput{display:flex;align-items:center;gap:9px}.quantityinput input{width:90px!important;margin:0!important}.extendedcheckin{display:grid;grid-template-columns:1fr 1fr;gap:12px}.interventionoffer{display:grid;gap:12px}.associationgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.associationgrid article{background:#0a1d18;border:1px solid #29473f;border-radius:15px;padding:15px}.settingtoggle{display:flex;align-items:center;gap:10px}.settingtoggle input{width:20px;height:20px;accent-color:#1bd19b}@media(max-width:600px){.extendedcheckin{grid-template-columns:1fr}.checksegments button{flex:1 1 42%}}
+.permissiongrid{display:flex;flex-wrap:wrap;gap:8px}.permissiongrid span{background:#0a1d18;border:1px solid #29473f;border-radius:99px;padding:8px 11px}
 .daynav {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) 44px;

@@ -11,6 +11,10 @@ class DrinkIn(BaseModel):
     duration_minutes: int = Field(default=30, ge=0)
     notes: str | None = None
     cost: float | None = None
+    timezone_id: str | None = Field(default=None, max_length=64)
+    utc_offset_minutes: int | None = Field(default=None, ge=-840, le=840)
+    display_quantity: float | None = Field(default=None, ge=0)
+    display_unit: str | None = Field(default=None, max_length=24)
 
 class DrinkOut(DrinkIn):
     id: int
