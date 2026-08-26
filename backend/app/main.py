@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from . import __version__
 from .auth import current_user, hash_password, verify_password, wear_user
 from .db import Base, engine, get_db
-from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, GoalAchievement, ImportBatch, Preset, TrackedDay, User, WearPairingCode, WearToken
+from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, GoalAchievement, ImportBatch, Preset, SyncEvent, SyncMutation, TrackedDay, User, WearPairingCode, WearToken
 from .schemas import DrinkIn, DrinkOut, Login, SettingsPatch
 from .services import (aggregate_periods, alcohol, bac_at, bac_projection, compare_series,
  daily_series, import_csv, key_for, pearson, period_stats, reduction_records, sessions, spearman, temporal_stats)
@@ -84,6 +84,16 @@ def wear_drink_out(d:Drink):
       "quantity":d.quantity,"started_at":d.started_at,"ended_at":d.ended_at,"duration_minutes":d.duration_minutes,
       "alcohol_grams":d.alcohol_grams,"canadian_standard_drinks":d.canadian_standard_drinks,"is_active":d.is_active}
 
+def sync_drink_out(d:Drink):
+    return {"id":d.id,"drink_type":d.drink_type,"drink_name":d.drink_name,"volume_ml":d.volume_ml,
+      "abv_percent":d.abv_percent,"quantity":d.quantity,"started_at":d.started_at.isoformat(),
+      "duration_minutes":d.duration_minutes,"notes":d.notes,"cost":d.cost,"is_active":d.is_active}
+
+def record_sync_event(db:Session,d:Drink,operation:str="upsert"):
+    db.flush()
+    db.add(SyncEvent(user_id=d.user_id,entity_type="drink",entity_id=d.id,operation=operation,
+      payload=sync_drink_out(d) if operation=="upsert" else None))
+
 @app.post("/api/wear/pairing-code")
 def create_wear_pairing_code(u:User=Depends(current_user),db:Session=Depends(get_db)):
     now=datetime.utcnow()
@@ -139,7 +149,7 @@ def wear_start(payload:dict,idempotency_key:str|None=Header(None,alias="Idempote
     d=Drink(user_id=u.id,drink_type=preset.drink_type if preset else str(payload.get("drink_type") or "autre"),drink_name=str(payload.get("drink_name") or (preset.name if preset else "Consommation")),volume_ml=volume,abv_percent=abv,quantity=quantity,started_at=started,ended_at=started,duration_minutes=0,notes=None,cost=None,source_icon="wear",import_source="wear_os",external_id=None,import_batch_id=None,dedupe_key=dedupe,alcohol_grams=grams,canadian_standard_drinks=standard,is_active=True)
     db.add(d);day=(started-timedelta(hours=u.day_start_hour)).date()
     if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date):u.tracking_start_date=day
-    db.commit();db.refresh(d);return wear_drink_out(d)
+    record_sync_event(db,d);db.commit();db.refresh(d);return wear_drink_out(d)
 
 @app.post("/api/wear/finish")
 def wear_finish(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db)):
@@ -148,7 +158,7 @@ def wear_finish(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db
     ended=datetime.fromisoformat(str(payload["ended_at"]).replace("Z","+00:00")).replace(tzinfo=None) if payload.get("ended_at") else datetime.now()
     if ended<d.started_at:raise HTTPException(422,"La fin précède le début")
     d.ended_at=ended;d.duration_minutes=max(0,round((ended-d.started_at).total_seconds()/60));d.is_active=False
-    db.commit();db.refresh(d);return wear_drink_out(d)
+    record_sync_event(db,d);db.commit();db.refresh(d);return wear_drink_out(d)
 
 @app.get("/api/drinks",response_model=list[DrinkOut])
 def list_drinks(day:date|None=None,start:date|None=None,end:date|None=None,q:str|None=None,limit:int=Query(500,ge=1,le=2000),offset:int=Query(0,ge=0),u:User=Depends(current_user),db:Session=Depends(get_db)):
@@ -181,7 +191,7 @@ def add_drink(data:DrinkIn,idempotency_key:str|None=Header(None,alias="Idempoten
             timezone_assumption=None if data.timezone_id else "legacy_local_time")
     db.add(d)
     if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date): u.tracking_start_date=day
-    db.commit(); db.refresh(d); return d
+    record_sync_event(db,d);db.commit(); db.refresh(d); return d
 
 @app.patch("/api/drinks/{drink_id}",response_model=DrinkOut)
 def update_drink(drink_id:int,data:DrinkIn,u:User=Depends(current_user),db:Session=Depends(get_db)):
@@ -193,13 +203,63 @@ def update_drink(drink_id:int,data:DrinkIn,u:User=Depends(current_user),db:Sessi
     d.started_at_utc=data.started_at;d.ended_at_utc=d.ended_at
     d.local_date=(data.started_at-timedelta(hours=u.day_start_hour)).date()
     d.alcohol_grams=grams;d.canadian_standard_drinks=standard
-    db.commit();db.refresh(d);return d
+    record_sync_event(db,d);db.commit();db.refresh(d);return d
 
 @app.delete("/api/drinks/{drink_id}",status_code=204)
 def remove_drink(drink_id:int,u:User=Depends(current_user),db:Session=Depends(get_db)):
     d=db.get(Drink,drink_id)
     if not d or d.user_id!=u.id: raise HTTPException(404)
-    db.delete(d); db.commit()
+    record_sync_event(db,d,"delete");db.delete(d); db.commit()
+
+@app.get("/api/sync")
+def pull_sync(cursor:int=Query(0,ge=0),limit:int=Query(500,ge=1,le=2000),u:User=Depends(wear_user),db:Session=Depends(get_db)):
+    """Returns a full first snapshot, then ordered changes after an opaque cursor."""
+    high_water=db.scalar(select(func.max(SyncEvent.id)).where(SyncEvent.user_id==u.id)) or 0
+    if cursor==0:
+        drinks=db.scalars(select(Drink).where(Drink.user_id==u.id).order_by(Drink.id)).all()
+        changes=[{"cursor":high_water,"entity_type":"drink","entity_id":d.id,"operation":"upsert","payload":sync_drink_out(d)} for d in drinks]
+        return {"cursor":high_water,"has_more":False,"changes":changes,"snapshot":True}
+    events=db.scalars(select(SyncEvent).where(SyncEvent.user_id==u.id,SyncEvent.id>cursor).order_by(SyncEvent.id).limit(limit+1)).all()
+    page=events[:limit]
+    return {"cursor":page[-1].id if page else cursor,"has_more":len(events)>limit,"changes":[
+      {"cursor":x.id,"entity_type":x.entity_type,"entity_id":x.entity_id,"operation":x.operation,"payload":x.payload}
+      for x in page],"snapshot":False}
+
+@app.post("/api/sync")
+def push_sync(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db)):
+    """Applies idempotent, client-authored drink mutations in their original order."""
+    results=[]
+    for raw in payload.get("mutations",[]):
+        mutation_id=str(raw.get("mutation_id","")).strip()[:64]
+        if not mutation_id:raise HTTPException(422,"mutation_id requis")
+        previous=db.scalar(select(SyncMutation).where(SyncMutation.user_id==u.id,SyncMutation.mutation_id==mutation_id))
+        if previous:results.append(previous.result);continue
+        operation=raw.get("operation");server_id=raw.get("server_id");data=raw.get("data") or {}
+        if operation=="create":
+            incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity)
+            ended=incoming.started_at+timedelta(minutes=incoming.duration_minutes);day=(incoming.started_at-timedelta(hours=u.day_start_hour)).date()
+            d=Drink(**incoming.model_dump(),user_id=u.id,ended_at=ended,dedupe_key=f"sync:{mutation_id}",
+              alcohol_grams=grams,canadian_standard_drinks=standard,source_icon=None,import_source="android",
+              external_id=None,import_batch_id=None,started_at_utc=incoming.started_at,ended_at_utc=ended,
+              local_date=day,timezone_assumption=None if incoming.timezone_id else "legacy_local_time")
+            if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date):u.tracking_start_date=day
+            db.add(d);record_sync_event(db,d);result={"mutation_id":mutation_id,"status":"applied","server_id":d.id}
+        elif operation=="update":
+            d=db.get(Drink,int(server_id)) if server_id is not None else None
+            if not d or d.user_id!=u.id:raise HTTPException(404,"Consommation introuvable")
+            incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity)
+            for key,value in incoming.model_dump().items():setattr(d,key,value)
+            d.ended_at=incoming.started_at+timedelta(minutes=incoming.duration_minutes);d.started_at_utc=incoming.started_at
+            d.ended_at_utc=d.ended_at;d.local_date=(incoming.started_at-timedelta(hours=u.day_start_hour)).date()
+            d.alcohol_grams=grams;d.canadian_standard_drinks=standard;record_sync_event(db,d)
+            result={"mutation_id":mutation_id,"status":"applied","server_id":d.id}
+        elif operation=="delete":
+            d=db.get(Drink,int(server_id)) if server_id is not None else None
+            if d and d.user_id==u.id:record_sync_event(db,d,"delete");db.delete(d)
+            result={"mutation_id":mutation_id,"status":"applied","server_id":server_id}
+        else:raise HTTPException(422,"Opération de synchronisation inconnue")
+        db.add(SyncMutation(user_id=u.id,mutation_id=mutation_id,result=result));db.commit();results.append(result)
+    return {"results":results}
 
 @app.get("/api/drinks/search")
 def search_drinks(q:str|None=None,start:date|None=None,end:date|None=None,drink_type:str|None=None,min_abv:float|None=None,max_abv:float|None=None,min_standards:float|None=None,page:int=Query(1,ge=1),page_size:int=Query(25,ge=5,le=100),u:User=Depends(current_user),db:Session=Depends(get_db)):
@@ -221,7 +281,7 @@ def search_drinks(q:str|None=None,start:date|None=None,end:date|None=None,drink_
 def bulk_delete(payload:dict,u:User=Depends(current_user),db:Session=Depends(get_db)):
     ids=[int(value) for value in payload.get("ids",[])]
     rows=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.id.in_(ids))).all()
-    for row in rows:db.delete(row)
+    for row in rows:record_sync_event(db,row,"delete");db.delete(row)
     db.commit();return {"deleted":len(rows)}
 
 @app.get("/api/drinks/export")
@@ -238,7 +298,11 @@ def presets(u:User=Depends(current_user),db:Session=Depends(get_db)):
 
 @app.post("/api/import")
 async def do_import(file:UploadFile=File(...),u:User=Depends(current_user),db:Session=Depends(get_db)):
-    try: return import_csv(db,u,file.filename or "import.csv",await file.read())
+    try:
+        result=import_csv(db,u,file.filename or "import.csv",await file.read())
+        rows=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.import_batch_id==result["batch_id"])).all()
+        for row in rows:record_sync_event(db,row)
+        db.commit();return result
     except ValueError as e: raise HTTPException(422,str(e))
 
 @app.get("/api/import/history")
@@ -249,7 +313,8 @@ def import_history(u:User=Depends(current_user),db:Session=Depends(get_db)):
 def undo_import(batch_id:int,u:User=Depends(current_user),db:Session=Depends(get_db)):
     b=db.get(ImportBatch,batch_id)
     if not b or b.user_id!=u.id: raise HTTPException(404)
-    removed=db.scalar(select(func.count()).select_from(Drink).where(Drink.import_batch_id==b.id))
+    rows=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.import_batch_id==b.id)).all();removed=len(rows)
+    for row in rows:record_sync_event(db,row,"delete")
     db.delete(b); db.commit(); return {"removed":removed}
 
 @app.get("/api/days")

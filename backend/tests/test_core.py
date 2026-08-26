@@ -144,6 +144,24 @@ def test_manual_drink_idempotency_and_history_filters(client):
     rows=client.get("/api/drinks?q=copie&start=2026-08-24&end=2026-08-24").json()
     assert len(rows)==1 and rows[0]["drink_name"]=="Copie sûre"
 
+def test_mobile_sync_snapshot_changes_deletions_and_idempotency(client):
+    code=client.post("/api/wear/pairing-code").json()["code"]
+    token=client.post("/api/wear/pair",json={"code":code,"device_name":"Android"}).json()["token"]
+    auth={"Authorization":f"Bearer {token}"}
+    payload={"drink_name":"Hors ligne","volume_ml":341,"abv_percent":5,
+      "started_at":"2026-08-24T20:00:00","duration_minutes":30}
+    mutation={"mutation_id":"mobile-create-1","operation":"create","data":payload}
+    first=client.post("/api/sync",headers=auth,json={"mutations":[mutation]}).json()["results"][0]
+    replay=client.post("/api/sync",headers=auth,json={"mutations":[mutation]}).json()["results"][0]
+    assert first==replay
+    snapshot=client.get("/api/sync?cursor=0",headers=auth).json()
+    assert snapshot["snapshot"] is True and snapshot["changes"][0]["payload"]["drink_name"]=="Hors ligne"
+    cursor=snapshot["cursor"]
+    deletion={"mutation_id":"mobile-delete-1","operation":"delete","server_id":first["server_id"]}
+    assert client.post("/api/sync",headers=auth,json={"mutations":[deletion]}).status_code==200
+    changes=client.get(f"/api/sync?cursor={cursor}",headers=auth).json()
+    assert changes["changes"][-1]["operation"]=="delete"
+
 def test_bac_day_projection(client):
     client.post("/api/drinks",json={"drink_name":"Test","volume_ml":341,"abv_percent":5,"started_at":"2026-08-24T20:00:00","duration_minutes":30})
     data=client.get("/api/bac/day?day=2026-08-24").json()
@@ -160,8 +178,8 @@ def test_sqlite_backup_is_downloadable(client):
 
 def test_pwa_and_foldable_navigation_assets():
     root=Path(__file__).resolve().parents[2]/"frontend"
-    manifest=json.loads((root/"public/manifest.webmanifest").read_text())
-    source=(root/"src/main.tsx").read_text();styles=(root/"src/design-system.css").read_text();worker=(root/"public/sw.js").read_text()
+    manifest=json.loads((root/"public/manifest.webmanifest").read_text(encoding="utf-8"))
+    source=(root/"src/main.tsx").read_text(encoding="utf-8");styles=(root/"src/design-system.css").read_text(encoding="utf-8");worker=(root/"public/sw.js").read_text(encoding="utf-8")
     assert manifest["display"]=="standalone" and "serviceWorker.register" in source
     assert "position: fixed" in styles and "100vw - 16px" in styles
     assert "repere-v4" in worker and "cache.put" in worker

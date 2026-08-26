@@ -6,4 +6,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "Repere"
-include(":mobile", ":wear")
+include(":core", ":data", ":mobile", ":wear")

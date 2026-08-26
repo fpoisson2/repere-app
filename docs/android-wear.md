@@ -1,9 +1,22 @@
 # Android et Wear OS
 
-Le dossier `android/` contient deux applications signées avec le même identifiant :
+Le dossier `android/` contient deux applications signées avec le même identifiant et deux modules partagés :
 
 - `mobile` : application Android compagnon;
-- `wear` : application Wear OS autonome et complication de cadran.
+- `wear` : application Wear OS compagnon et complication de cadran;
+- `core` : modèles métier communs au téléphone et à la montre;
+- `data` : base Room et synchronisation durable par WorkManager.
+
+Le téléphone est la source de vérité locale et fonctionne sans compte ni serveur. Il crée des favoris intégrés au premier démarrage et conserve les consommations ainsi que les résumés Health Connect dans Room. Si l’utilisateur active la synchronisation facultative, les changements locaux sont envoyés de manière idempotente à `/api/sync`, puis les changements serveur sont récupérés avec un curseur. Les suppressions font partie du journal de synchronisation et ne sont donc pas perdues hors ligne.
+
+L’application Android propose quatre espaces :
+
+- **Aujourd’hui** : total quotidien, favoris et saisie personnalisée utilisables hors ligne;
+- **Historique** : copie Room et suppression synchronisée;
+- **Santé** : choix granulaire des autorisations et import de résumés Health Connect sur 14 jours;
+- **Réglages** : association au serveur et transmission de la configuration à la montre.
+
+Health Connect n’envoie que des agrégats quotidiens. Une journée sans enregistrement reste absente plutôt que d’être transformée en valeur zéro. L’historique étendu et la lecture en arrière-plan demeurent des consentements séparés et ne sont pas demandés par le flux standard.
 
 ## Fonctionnement
 
@@ -22,7 +35,12 @@ Le code expire après dix minutes et ne peut servir qu’une fois. Le jeton peut
 
 ## Compilation
 
-Ouvrir le dossier `android/` dans une version récente d’Android Studio avec JDK 17 et le SDK Android 35, puis synchroniser Gradle.
+Ouvrir le dossier `android/` dans une version récente d’Android Studio avec JDK 17 et le SDK Android 36, puis synchroniser Gradle. Le Gradle Wrapper inclus permet aussi de construire sans installation globale de Gradle :
+
+```powershell
+cd android
+.\gradlew.bat :mobile:assembleDebug :wear:assembleDebug
+```
 
 - sélectionner `mobile` pour produire l’APK du téléphone;
 - sélectionner `wear` pour produire l’APK de la montre;
@@ -42,4 +60,6 @@ Dans le sélecteur de complications du cadran, choisir **Repère**. Elle affiche
 
 ## Réseau et sécurité
 
-L’accès HTTP en clair est activé pour permettre un serveur de homelab sur le VLAN local. Ne publiez pas ce port HTTP sur Internet. Pour un accès distant, utilisez un nom DNS avec HTTPS via Caddy, Nginx Proxy Manager, Traefik ou un tunnel sécurisé, puis configurez cette URL dans l’application.
+HTTP en clair est désactivé dans tous les builds. Le serveur par défaut est `https://repere.ve2fpd.com`; une autre adresse peut être configurée, mais elle doit utiliser HTTPS.
+
+La préparation de la piste de test Play Console est détaillée dans [play-store.md](play-store.md).

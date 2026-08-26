@@ -145,10 +145,57 @@ def list_checkins(start:date|None=None,end:date|None=None,u:User=Depends(current
     q=select(EmaCheckIn,ContextObservation).join(ContextObservation).where(EmaCheckIn.user_id==u.id)
     if start:q=q.where(EmaCheckIn.local_date>=start)
     if end:q=q.where(EmaCheckIn.local_date<=end)
-    return [{"id":c.id,"local_date":c.local_date,"observed_at_utc":c.observed_at_utc,"craving":c.craving,
-      "confidence":c.confidence,"post_onset":c.post_onset,"social_context":x.social_context,
-      "others_drinking":x.others_drinking,"alcohol_available":x.alcohol_available}
-      for c,x in db.execute(q.order_by(EmaCheckIn.observed_at_utc.desc())).all()]
+    return [checkin_payload(db,c,x) for c,x in db.execute(q.order_by(EmaCheckIn.observed_at_utc.desc())).all()]
+
+def checkin_payload(db:Session,c:EmaCheckIn,x:ContextObservation):
+    plan=db.scalar(select(DailyPlan).where(DailyPlan.user_id==c.user_id,
+      DailyPlan.local_date==c.local_date,DailyPlan.created_at_utc==c.observed_at_utc))
+    return {"id":c.id,"local_date":c.local_date,"observed_at_utc":c.observed_at_utc,
+      "timezone_id":c.timezone_id,"craving":c.craving,"confidence":c.confidence,
+      "stress":c.stress,"positive_affect":c.positive_affect,"negative_affect":c.negative_affect,
+      "fatigue":c.fatigue,"notes":c.notes,"post_onset":c.post_onset,
+      "social_context":x.social_context,"others_drinking":x.others_drinking,
+      "alcohol_available":x.alcohol_available,"event_type":x.event_type,
+      "planned_grams":plan.planned_grams if plan else None,
+      "display_quantity":plan.display_quantity if plan else None,
+      "display_unit":plan.display_unit if plan else None}
+
+@router.get("/check-ins/{check_in_id}")
+def get_checkin(check_in_id:str,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    row=db.execute(select(EmaCheckIn,ContextObservation).join(ContextObservation).where(
+      EmaCheckIn.id==check_in_id,EmaCheckIn.user_id==u.id)).first()
+    if not row: raise HTTPException(404,"Check-in introuvable")
+    return checkin_payload(db,*row)
+
+@router.put("/check-ins/{check_in_id}")
+def update_checkin(check_in_id:str,data:CheckInIn,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    row=db.execute(select(EmaCheckIn,ContextObservation).join(ContextObservation).where(
+      EmaCheckIn.id==check_in_id,EmaCheckIn.user_id==u.id)).first()
+    if not row: raise HTTPException(404,"Check-in introuvable")
+    check,context=row
+    old_observed=check.observed_at_utc
+    observed=utc_naive(data.observed_at)
+    plan=db.scalar(select(DailyPlan).where(DailyPlan.user_id==u.id,
+      DailyPlan.local_date==check.local_date,DailyPlan.created_at_utc==old_observed))
+    post=drinking_started(db,u.id,observed,data.local_date)
+    for key,value in {"observed_at_utc":observed,"local_date":data.local_date,
+      "timezone_id":data.timezone_id,"craving":data.craving,"confidence":data.confidence,
+      "stress":data.stress,"positive_affect":data.positive_affect,
+      "negative_affect":data.negative_affect,"fatigue":data.fatigue,"notes":data.notes,
+      "post_onset":post,"phase":"pre_drinking" if not post else "post_onset"}.items(): setattr(check,key,value)
+    for key,value in {"observed_at_utc":observed,"social_context":data.social_context,
+      "others_drinking":data.others_drinking,"alcohol_available":data.alcohol_available,
+      "event_type":data.event_type}.items(): setattr(context,key,value)
+    if plan:
+        for key,value in {"local_date":data.local_date,"planned_grams":data.planned_grams,
+          "display_quantity":data.display_quantity,"display_unit":data.display_unit,
+          "created_at_utc":observed,"timezone_id":data.timezone_id}.items(): setattr(plan,key,value)
+    else:
+        db.add(DailyPlan(user_id=u.id,local_date=data.local_date,planned_grams=data.planned_grams,
+          display_quantity=data.display_quantity,display_unit=data.display_unit,
+          created_at_utc=observed,timezone_id=data.timezone_id))
+    db.commit()
+    return get_checkin(check_in_id,u,db)
 
 @router.post("/health-connect/aggregates")
 def import_health(rows:list[HealthAggregateIn],u:User=Depends(wear_user),db:Session=Depends(get_db)):

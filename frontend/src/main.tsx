@@ -175,7 +175,7 @@ function App() {
     [bac, setBac] = useState<any>(null),
     [modal, setModal] = useState<Preset | null>(null),
     [addMenu, setAddMenu] = useState(false),
-    [moodModal, setMoodModal] = useState(false),
+    [moodModal, setMoodModal] = useState<any>(),
     [selectedDate, setSelectedDate] = useState(
       new Date().toISOString().slice(0, 10),
     ),
@@ -311,7 +311,7 @@ function App() {
             selectedDate={selectedDate}
             setSelectedDate={setSelectedDate}
             add={() => setAddMenu(true)}
-            mood={() => setMoodModal(true)}
+            mood={(checkIn) => setMoodModal(checkIn || { isNew: true })}
           />
         ) : view === "stats" ? (
           <Stats stats={stats} />
@@ -379,7 +379,8 @@ function App() {
         />
       )}
       {moodModal && (
-        <CheckInModal day={selectedDate} close={() => setMoodModal(false)} />
+        <CheckInModal day={selectedDate} initial={moodModal.isNew ? undefined : moodModal}
+          close={() => setMoodModal(undefined)} saved={load} />
       )}
     </>
   );
@@ -405,7 +406,7 @@ function Dashboard({
   selectedDate: string;
   setSelectedDate: (day: string) => void;
   add: () => void;
-  mood: () => void;
+  mood: (checkIn?: any) => void;
 }) {
   const [celebration, setCelebration] = useState<any>();
   const [selectedDayStatus, setSelectedDayStatus] = useState("no_data");
@@ -415,17 +416,20 @@ function Dashboard({
   const [pendingDelete, setPendingDelete] = useState<any>();
   const [bacDay, setBacDay] = useState<any>();
   const [sessionCards, setSessionCards] = useState<any[]>([]);
+  const [checkIns, setCheckIns] = useState<any[]>([]);
   useEffect(() => {
     Promise.all([
       api(`/days?start=${selectedDate}&end=${selectedDate}`),
       api(`/drinks?day=${selectedDate}`),
       api(`/bac/day?day=${selectedDate}`),
       api(`/sessions/day?day=${selectedDate}`),
-    ]).then(([rows, drinks, bacHistory, dailySessions]) => {
+      api(`/check-ins?start=${selectedDate}&end=${selectedDate}`),
+    ]).then(([rows, drinks, bacHistory, dailySessions, dailyCheckIns]) => {
       setSelectedDayStatus(rows[0]?.status || "no_data");
       setSelectedDayDrinks(drinks);
       setBacDay(bacHistory);
       setSessionCards(dailySessions);
+      setCheckIns(dailyCheckIns);
     });
   }, [selectedDate, stats]);
   const moveDay = (offset: number) => {
@@ -604,7 +608,7 @@ function Dashboard({
         <div className="dayactions">
           <button
             className="moodbutton"
-            onClick={mood}
+            onClick={() => mood()}
             aria-label="Faire mon check-in avant de boire"
           >
             <BrainCircuit size={20} />
@@ -613,6 +617,17 @@ function Dashboard({
             <Plus size={17} /> Ajouter à cette journée
           </button>
         </div>
+        {checkIns.length > 0 && <div className="checkincards">
+          {checkIns.map((checkIn) => <button key={checkIn.id} type="button"
+            className="checkincard" onClick={() => mood(checkIn)}>
+            <BrainCircuit size={20} />
+            <span><b>Check-in de {new Date(checkIn.observed_at_utc).toLocaleTimeString("fr-CA", {hour:"2-digit",minute:"2-digit"})}</b>
+              <small>Envie {checkIn.craving}/10 · confiance {checkIn.confidence}/10 · intention {checkIn.display_quantity ?? (checkIn.planned_grams / 13.45).toFixed(1)} standard(s)</small>
+              <small>{({alone:"Seul·e",partner_family:"Partenaire/famille",friends:"Amis",colleagues_event:"Collègues/événement"} as Record<string,string>)[checkIn.social_context] || checkIn.social_context}{checkIn.notes ? ` · ${checkIn.notes}` : ""}</small>
+            </span>
+            <Pencil size={16} />
+          </button>)}
+        </div>}
         <div className="daymetrics">
           <Metric
             label="Consommations"
@@ -3164,30 +3179,30 @@ function Prefs({
     </div>
   );
 }
-function CheckInModal({ day, close }: { day: string; close: () => void }) {
-  const [craving, setCraving] = useState(5),
-    [confidence, setConfidence] = useState(5),
-    [planned, setPlanned] = useState(0),
-    [social, setSocial] = useState("alone"),
-    [others, setOthers] = useState("unknown"),
-    [available, setAvailable] = useState(false),
-    [extended, setExtended] = useState(false),
-    [stress, setStress] = useState(5),
-    [positiveAffect, setPositiveAffect] = useState(5),
-    [negativeAffect, setNegativeAffect] = useState(5),
-    [fatigue, setFatigue] = useState(5),
-    [eventType, setEventType] = useState(""),
-    [notes, setNotes] = useState(""),
+function CheckInModal({ day, close, initial, saved: onSaved }: { day: string; close: () => void; initial?: any; saved?: () => Promise<void> }) {
+  const [craving, setCraving] = useState(initial?.craving ?? 5),
+    [confidence, setConfidence] = useState(initial?.confidence ?? 5),
+    [planned, setPlanned] = useState(initial?.display_quantity ?? (initial?.planned_grams != null ? initial.planned_grams / 13.45 : 0)),
+    [social, setSocial] = useState(initial?.social_context ?? "alone"),
+    [others, setOthers] = useState(initial?.others_drinking ?? "unknown"),
+    [available, setAvailable] = useState(initial?.alcohol_available ?? false),
+    [extended, setExtended] = useState([initial?.stress,initial?.positive_affect,initial?.negative_affect,initial?.fatigue,initial?.event_type,initial?.notes].some(x=>x!=null && x!=="")),
+    [stress, setStress] = useState(initial?.stress ?? 5),
+    [positiveAffect, setPositiveAffect] = useState(initial?.positive_affect ?? 5),
+    [negativeAffect, setNegativeAffect] = useState(initial?.negative_affect ?? 5),
+    [fatigue, setFatigue] = useState(initial?.fatigue ?? 5),
+    [eventType, setEventType] = useState(initial?.event_type ?? ""),
+    [notes, setNotes] = useState(initial?.notes ?? ""),
     [saved, setSaved] = useState(false),
     [error, setError] = useState(""),
     [intervention, setIntervention] = useState<any>();
   const submit = async () => {
     setError("");
     try {
-      const result = await api("/check-ins", {
-        method: "POST",
+      const result = await api(initial ? `/check-ins/${initial.id}` : "/check-ins", {
+        method: initial ? "PUT" : "POST",
         body: JSON.stringify({
-          observed_at: new Date().toISOString(), local_date: day,
+          observed_at: initial?.observed_at_utc || new Date().toISOString(), local_date: day,
           timezone_id: Intl.DateTimeFormat().resolvedOptions().timeZone,
           craving, confidence, planned_grams: planned * 13.45,
           display_quantity: planned, display_unit: "standard_ca",
@@ -3199,6 +3214,7 @@ function CheckInModal({ day, close }: { day: string; close: () => void }) {
         }),
       });
       setSaved(true);
+      await onSaved?.();
       if (result?.decision?.kind === "offer") setIntervention(result.decision);
       else setTimeout(close, 550);
     } catch (reason) {
@@ -3215,8 +3231,8 @@ function CheckInModal({ day, close }: { day: string; close: () => void }) {
         <div className="trophybig">
           <BrainCircuit size={38} />
         </div>
-        <div className="eyebrow">Check-in avant de boire · {new Date(`${day}T12:00:00`).toLocaleDateString("fr-CA")}</div>
-        <h2>Mon intention maintenant</h2>
+        <div className="eyebrow">{initial ? "Modifier le check-in" : "Check-in avant de boire"} · {new Date(`${day}T12:00:00`).toLocaleDateString("fr-CA")}</div>
+        <h2>{initial ? "Mon intention enregistrée" : "Mon intention maintenant"}</h2>
         {!intervention ? <div className="checkinform">
           <label>Envie de boire <b>{craving}/10</b><input type="range" min="0" max="10" value={craving} onChange={e=>setCraving(+e.target.value)}/></label>
           <label>Confiance de respecter mon intention <b>{confidence}/10</b><input type="range" min="0" max="10" value={confidence} onChange={e=>setConfidence(+e.target.value)}/></label>
@@ -3237,7 +3253,7 @@ function CheckInModal({ day, close }: { day: string; close: () => void }) {
             Annuler
           </button>
           <button className="add" onClick={submit}>
-            {saved ? "Enregistré ✓" : "Enregistrer"}
+            {saved ? "Enregistré ✓" : initial ? "Enregistrer les modifications" : "Enregistrer"}
           </button>
         </div>}
       </div>

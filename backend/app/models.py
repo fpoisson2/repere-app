@@ -84,6 +84,25 @@ class WearToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+class SyncEvent(Base):
+    __tablename__ = "sync_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    entity_type: Mapped[str] = mapped_column(String(32), index=True)
+    entity_id: Mapped[int] = mapped_column(Integer)
+    operation: Mapped[str] = mapped_column(String(12))
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+class SyncMutation(Base):
+    __tablename__ = "sync_mutations"
+    __table_args__ = (UniqueConstraint("user_id", "mutation_id", name="uq_sync_mutation_user_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    mutation_id: Mapped[str] = mapped_column(String(64))
+    result: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class AiInsight(Base):
     __tablename__ = "ai_insights"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -11,7 +11,7 @@ class QuickDrinkComplicationService : SuspendingComplicationDataSourceService() 
     override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData = data(getSharedPreferences("repere", MODE_PRIVATE).getBoolean("active", false))
     private fun data(active: Boolean): ComplicationData {
         val label = if (active) "Terminer" else "Démarrer"
-        val tap = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java).putExtra("quick_toggle", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val tap = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java).putExtra("quick_toggle", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return ShortTextComplicationData.Builder(PlainComplicationText.Builder(label).build(), PlainComplicationText.Builder("Repère : $label une consommation").build()).setTapAction(tap).build()
     }
 }

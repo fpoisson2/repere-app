@@ -7,14 +7,14 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import ca.repere.core.CredentialStore
 
 object Api {
     suspend fun state(context: Context): JSONObject = call(context, "/api/wear/state", "GET", null)
     suspend fun start(context: Context, volume: Int, abv: Float, quantity: Int): JSONObject = call(context, "/api/wear/start", "POST", JSONObject().put("volume_ml", volume).put("abv_percent", abv).put("quantity", quantity))
     suspend fun finish(context: Context): JSONObject = call(context, "/api/wear/finish", "POST", JSONObject())
     private suspend fun call(context: Context, path: String, method: String, body: JSONObject?): JSONObject = withContext(Dispatchers.IO) {
-        val prefs = context.getSharedPreferences("repere", Context.MODE_PRIVATE)
-        val server = prefs.getString("server", "")!!.trimEnd('/'); val token = prefs.getString("token", "")!!
+        val credentials=CredentialStore(context);val server=credentials.server().trimEnd('/');val token=credentials.token()
         if (server.isBlank() || token.isBlank()) error("Configurez la montre depuis le téléphone")
         val connection = URL(server + path).openConnection() as HttpURLConnection
         connection.requestMethod = method; connection.connectTimeout = 8000; connection.readTimeout = 8000

@@ -79,6 +79,18 @@ def test_checkin_validation_rejects_invalid_scales_and_context(client):
     assert client.post("/api/check-ins",json={**CHECKIN,"craving":11}).status_code==422
     assert client.post("/api/check-ins",json={**CHECKIN,"social_context":"party"}).status_code==422
 
+def test_checkin_can_be_read_in_full_and_updated(client):
+    created=client.post("/api/check-ins",json={**CHECKIN,"notes":"Avant"}).json()
+    check=client.get(f"/api/check-ins/{created['id']}").json()
+    assert check["display_quantity"]==2 and check["notes"]=="Avant"
+    changed={**CHECKIN,"craving":4,"confidence":8,"display_quantity":1.5,
+      "planned_grams":20.175,"social_context":"alone","notes":"Après"}
+    response=client.put(f"/api/check-ins/{created['id']}",json=changed)
+    assert response.status_code==200
+    assert response.json()["craving"]==4 and response.json()["display_quantity"]==1.5
+    listed=client.get("/api/check-ins?start=2026-08-25&end=2026-08-25").json()
+    assert listed[0]["notes"]=="Après" and listed[0]["social_context"]=="alone"
+
 def test_personal_analytics_uses_association_language(client):
     data=client.get("/api/analytics/personal").json()
     assert "ne démontrent pas une cause" in data["disclaimer"]

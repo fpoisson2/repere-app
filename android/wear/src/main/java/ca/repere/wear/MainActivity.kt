@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
             if (quickToggle) toggle()
         }
         Column(Modifier.fillMaxSize().padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(if (active) "En cours" else "Prêt", style = MaterialTheme.typography.titleLarge)
+            Text(if (active) "En cours" else "Prêt", style = MaterialTheme.typography.title2)
             if (!active) {
                 Text("${volume} ml · ${"%.1f".format(abv)} % · ×$quantity")
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -49,7 +49,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             Button(onClick = { toggle() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "…" else if (active) "Terminer" else "Démarrer") }
-            if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
+            if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.body2)
         }
     }
 }

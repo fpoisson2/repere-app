@@ -1,19 +1,51 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) keystorePropertiesFile.inputStream().use { load(it) }
+}
 android {
     namespace = "ca.repere.mobile"
-    compileSdk = 35
-    defaultConfig { applicationId = "ca.repere.app"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0.0" }
-    buildFeatures { compose = true }
+    compileSdk = 36
+    defaultConfig { applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36; versionCode = 36010000; versionName = "1.0.0" }
+    buildFeatures { compose = true; buildConfig = true }
+    defaultConfig {
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://repere.ve2fpd.com\"")
+    }
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) create("release") {
+            storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+            storePassword = keystoreProperties.getProperty("storePassword")
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
+        }
+    }
+    buildTypes {
+        getByName("debug") { manifestPlaceholders["usesCleartextTraffic"] = "false" }
+        getByName("release") {
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
+    implementation(project(":core"))
+    implementation(project(":data"))
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.material3:material3")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("androidx.health.connect:connect-client:1.1.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 }

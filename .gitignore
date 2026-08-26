@@ -21,6 +21,9 @@ android/.gradle/
 android/build/
 android/*/build/
 android/local.properties
+android/keystore.properties
+android/*.jks
+android/*.keystore
 
 # Runtime and deployment artifacts
 backups/
