@@ -31,6 +31,10 @@ def test_legacy_journal_routes_are_removed(client):
     assert client.get("/api/journal").status_code==404
     assert client.post("/api/journal",json={"day":"2026-08-25"}).status_code in {404,405}
 
+def test_no_legacy_journal_checkins_exist_in_new_schema(client):
+    with SessionLocal() as db:
+        assert db.query(EmaCheckIn).filter(EmaCheckIn.source=="journal_migration").count()==0
+
 def test_jitai_offer_and_not_now_are_audited(client):
     client.patch("/api/jitai/config",json={"enabled":True,"max_notifications_per_week":2})
     result=client.post("/api/check-ins",json=CHECKIN).json()
