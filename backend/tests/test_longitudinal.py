@@ -35,6 +35,17 @@ def test_no_legacy_journal_checkins_exist_in_new_schema(client):
     with SessionLocal() as db:
         assert db.query(EmaCheckIn).filter(EmaCheckIn.source=="journal_migration").count()==0
 
+def test_achieved_goal_creates_persistent_success(client):
+    client.post("/api/days/sober",json={"date":"2026-08-26"})
+    goal=client.post("/api/goals",json={"kind":"max_grams_session","target":100,
+      "temporal_mode":"deadline","due_date":"2099-12-31"}).json()
+    first=client.get("/api/success").json()
+    badge=next(x for x in first["badges"] if x["category"]=="goal")
+    assert badge["unlocked"] is True and "Objectif personnel atteint" in badge["description"]
+    client.delete(f"/api/goals/{goal['id']}")
+    second=client.get("/api/success").json()
+    assert any(x["id"]==badge["id"] for x in second["badges"])
+
 def test_jitai_offer_and_not_now_are_audited(client):
     client.patch("/api/jitai/config",json={"enabled":True,"max_notifications_per_week":2})
     result=client.post("/api/check-ins",json=CHECKIN).json()

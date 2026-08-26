@@ -115,6 +115,17 @@ class Goal(Base):
     due_date: Mapped[date | None] = mapped_column(Date)
     started_on: Mapped[date | None] = mapped_column(Date, default=date.today)
 
+class GoalAchievement(Base):
+    __tablename__ = "goal_achievements"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    goal_id: Mapped[int | None] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"), unique=True, index=True)
+    goal_kind: Mapped[str] = mapped_column(String(48))
+    target_snapshot: Mapped[float]
+    temporal_mode: Mapped[str] = mapped_column(String(24))
+    achieved_at_utc: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+
 class TrackedDay(Base):
     __tablename__ = "tracked_days"
     __table_args__ = (UniqueConstraint("user_id", "day"),)

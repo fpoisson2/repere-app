@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from . import __version__
 from .auth import current_user, hash_password, verify_password, wear_user
 from .db import Base, engine, get_db
-from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, ImportBatch, Preset, TrackedDay, User, WearPairingCode, WearToken
+from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, GoalAchievement, ImportBatch, Preset, TrackedDay, User, WearPairingCode, WearToken
 from .schemas import DrinkIn, DrinkOut, Login, SettingsPatch
 from .services import (aggregate_periods, alcohol, bac_at, bac_projection, compare_series,
  daily_series, import_csv, key_for, pearson, period_stats, reduction_records, sessions, spearman, temporal_stats)
@@ -457,6 +457,41 @@ def success(u:User=Depends(current_user),db:Session=Depends(get_db)):
         monday=date.fromisoformat(week["period_start"]);days=[by_day.get(monday+timedelta(days=i),{"grams":0}) for i in range(7)]
         if all(x["grams"]==0 for x in days[:5]) and any(x["grams"]>0 for x in days[5:]):weekend_streak+=1
         else:break
+    # Persist the first verified attainment so its success survives later edits
+    # or deletion of the goal. Only reduction/limit goals are eligible.
+    goal_labels={"max_grams_week":"grammes par semaine","max_standards":"standards par semaine",
+      "min_alcohol_free_days":"jours sans alcool","max_grams_session":"grammes par session",
+      "monthly_reduction":"réduction mensuelle","max_drinking_days":"jours avec alcool",
+      "max_moving_7_grams":"moyenne mobile 7 jours"}
+    eligible=set(goal_labels)
+    session_rows=sessions(db.scalars(select(Drink).where(Drink.user_id==u.id).order_by(Drink.started_at)).all(),u.session_gap_hours)
+    latest_month=months[-1].get("change_percent") if months else None
+    recent_observed=[x for x in series[-7:] if x["observed"]]
+    current_values={"max_grams_week":complete_weeks[-1]["total_grams"] if complete_weeks else None,
+      "max_standards":complete_weeks[-1]["total_standards"] if complete_weeks else None,
+      "min_alcohol_free_days":complete_weeks[-1]["alcohol_free_days"] if complete_weeks else None,
+      "max_drinking_days":complete_weeks[-1]["alcohol_days"] if complete_weeks else None,
+      "max_grams_session":max([x["grams"] for x in session_rows[-20:]] or [0]),
+      "monthly_reduction":max(0,-latest_month) if latest_month is not None else None,
+      "max_moving_7_grams":statistics.fmean(x["grams"] for x in recent_observed) if recent_observed else None}
+    def goal_met(goal,value):
+        if value is None:return False
+        return value>=goal.target if goal.kind in {"min_alcohol_free_days","monthly_reduction"} else value<=goal.target
+    for goal in db.scalars(select(Goal).where(Goal.user_id==u.id,Goal.active.is_(True))).all():
+        if goal.kind not in eligible or db.scalar(select(GoalAchievement.id).where(GoalAchievement.goal_id==goal.id)):continue
+        achieved=False;evidence={}
+        if goal.temporal_mode=="deadline" and goal.due_date and date.today()<=goal.due_date and observed_count>0:
+            value=current_values.get(goal.kind);achieved=goal_met(goal,value);evidence={"value":value,"due_date":goal.due_date.isoformat()}
+        elif goal.temporal_mode=="consecutive_weeks" and goal.kind in {"max_grams_week","max_standards","min_alcohol_free_days","max_drinking_days"}:
+            field={"max_grams_week":"total_grams","max_standards":"total_standards","min_alcohol_free_days":"alcohol_free_days","max_drinking_days":"alcohol_days"}[goal.kind]
+            best=current=0
+            for week in complete_weeks:
+                current=current+1 if goal_met(goal,week[field]) else 0;best=max(best,current)
+            achieved=best>=(goal.consecutive_weeks or 1);evidence={"consecutive_weeks":best}
+        if achieved:db.add(GoalAchievement(user_id=u.id,goal_id=goal.id,goal_kind=goal.kind,
+          target_snapshot=goal.target,temporal_mode=goal.temporal_mode,evidence=evidence))
+    db.flush()
+    achievements=db.scalars(select(GoalAchievement).where(GoalAchievement.user_id==u.id).order_by(GoalAchievement.achieved_at_utc)).all()
     definitions=[
       ("first_entry","Premier pas","Première journée renseignée",min(observed_count,1),1,"seedling"),
       ("logged_3","Carnet ouvert","3 journées renseignées",observed_count,3,"tracking"),
@@ -484,6 +519,11 @@ def success(u:User=Depends(current_user),db:Session=Depends(get_db)):
       ("weekend_12","Guerrier du week-end · 3 mois","Consommation limitée au samedi et dimanche pendant 12 semaines complètes",weekend_streak,12,"weekend"),
     ]
     badges=[{"id":i,"title":t,"description":d,"unlocked":current>=target,"current":min(current,target),"target":target,"progress_percent":min(100,current/target*100),"category":c} for i,t,d,current,target,c in definitions]
+    badges.extend({"id":f"goal_{x.id}","title":"Objectif atteint",
+      "description":f"Objectif personnel atteint · {goal_labels.get(x.goal_kind,x.goal_kind)} · cible {x.target_snapshot:g}",
+      "unlocked":True,"current":1,"target":1,"progress_percent":100,"category":"goal","achieved_at":x.achieved_at_utc}
+      for x in achievements)
+    db.commit()
     return {"unlocked_count":sum(x["unlocked"] for x in badges),"total_count":len(badges),"badges":badges,
       "principle":"Les succès récompensent le suivi, les jours sans alcool et la réduction — jamais une forte consommation."}
 
