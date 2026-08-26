@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from . import __version__
 from .auth import current_user, hash_password, verify_password, wear_user
 from .db import Base, engine, get_db
-from .models import AiInsight, DailyPlan, Drink, Goal, ImportBatch, Journal, Preset, TrackedDay, User, WearPairingCode, WearToken
+from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, ImportBatch, Preset, TrackedDay, User, WearPairingCode, WearToken
 from .schemas import DrinkIn, DrinkOut, Login, SettingsPatch
 from .services import (aggregate_periods, alcohol, bac_at, bac_projection, compare_series,
  daily_series, import_csv, key_for, pearson, period_stats, reduction_records, sessions, spearman, temporal_stats)
@@ -445,7 +445,7 @@ def records(u:User=Depends(current_user),db:Session=Depends(get_db)):
 @app.get("/api/success")
 def success(u:User=Depends(current_user),db:Session=Depends(get_db)):
     series=daily_series(db,u,u.tracking_start_date or date.today(),date.today()); rec=reduction_records(series)
-    journals=db.scalar(select(func.count()).select_from(Journal).where(Journal.user_id==u.id)) or 0
+    checkins=db.scalar(select(func.count()).select_from(EmaCheckIn).where(EmaCheckIn.user_id==u.id)) or 0
     months=aggregate_periods(series,"month"); monthly_drop=rec.get("best_monthly_reduction")
     latest30=period_stats(series[-30:])["grams"]["mean"] if len(series)>=30 else None
     previous30=period_stats(series[-60:-30])["grams"]["mean"] if len(series)>=60 else None
@@ -474,8 +474,10 @@ def success(u:User=Depends(current_user),db:Session=Depends(get_db)):
       ("reduce_10","Tendance inversée","Moyenne mobile 30 jours réduite d’au moins 10 %",reduction,10,"reduction"),
       ("reduce_25","Virage durable","Moyenne mobile 30 jours réduite d’au moins 25 %",reduction,25,"reduction"),
       ("month_10","Mois en progrès","Diminution mensuelle d’au moins 10 %",month_reduction,10,"calendar"),
-      ("journal_7","Prendre du recul","7 journées de contexte consignées",journals,7,"journal"),
-      ("journal_30","Journal régulier","30 journées de contexte consignées",journals,30,"journal"),
+      ("checkin_1","Premier check-in","Premier check-in personnel complété",checkins,1,"checkin"),
+      ("checkin_7","Prendre du recul","7 check-ins personnels complétés",checkins,7,"checkin"),
+      ("checkin_30","Repères réguliers","30 check-ins personnels complétés",checkins,30,"checkin"),
+      ("checkin_90","Habitude de réflexion","90 check-ins personnels complétés",checkins,90,"checkin"),
       ("weekend_2","Guerrier du week-end · 2 semaines","Consommation limitée au samedi et dimanche pendant 2 semaines complètes",weekend_streak,2,"weekend"),
       ("weekend_4","Guerrier du week-end · 1 mois","Consommation limitée au samedi et dimanche pendant 4 semaines complètes",weekend_streak,4,"weekend"),
       ("weekend_8","Guerrier du week-end · 2 mois","Consommation limitée au samedi et dimanche pendant 8 semaines complètes",weekend_streak,8,"weekend"),
@@ -642,26 +644,6 @@ def delete_goal(goal_id:int,u:User=Depends(current_user),db:Session=Depends(get_
     g=db.get(Goal,goal_id)
     if not g or g.user_id!=u.id:raise HTTPException(404)
     db.delete(g);db.commit()
-
-@app.get("/api/journal")
-def journal(u:User=Depends(current_user),db:Session=Depends(get_db)): return db.scalars(select(Journal).where(Journal.user_id==u.id).order_by(Journal.day.desc())).all()
-@app.post("/api/journal")
-def upsert_journal(payload:dict,u:User=Depends(current_user),db:Session=Depends(get_db)):
-    day=date.fromisoformat(payload["day"]); j=db.scalar(select(Journal).where(Journal.user_id==u.id,Journal.day==day)) or Journal(user_id=u.id,day=day)
-    for key in ("mood","stress","fatigue","craving","notes","tags"):
-        if key in payload:setattr(j,key,payload[key])
-    db.add(j);db.commit();db.refresh(j);return j
-
-@app.get("/api/journal/correlations")
-def journal_correlations(u:User=Depends(current_user),db:Session=Depends(get_db)):
-    entries=db.scalars(select(Journal).where(Journal.user_id==u.id)).all()
-    if not entries:return {"sample_size":0,"correlations":{},"disclaimer":"Corrélation statistique ≠ causalité"}
-    totals={x["date"]:x["grams"] for x in daily_series(db,u,min(x.day for x in entries),max(x.day for x in entries))}
-    result={}
-    for field in ("mood","stress","fatigue","craving"):
-        pairs=[(getattr(x,field),totals.get(x.day.isoformat(),0)) for x in entries if getattr(x,field) is not None]
-        result[field]={"coefficient":pearson(pairs),"sample_size":len(pairs)}
-    return {"sample_size":len(entries),"correlations":result,"disclaimer":"Corrélation statistique ≠ causalité"}
 
 @app.get("/api/export")
 def export(format:str="json",u:User=Depends(current_user),db:Session=Depends(get_db)):

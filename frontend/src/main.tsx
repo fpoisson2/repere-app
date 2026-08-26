@@ -69,8 +69,7 @@ const queueRequest = (path: string, opts: RequestInit, id: string) => {
 const canQueue = (path: string, method: string) =>
   method !== "GET" &&
   (path.startsWith("/drinks") ||
-    path.startsWith("/days/sober") ||
-    path.startsWith("/journal"));
+    path.startsWith("/days/sober"));
 const requestId = () => {
   const bytes = new Uint8Array(16);
   if (globalThis.crypto?.getRandomValues) {

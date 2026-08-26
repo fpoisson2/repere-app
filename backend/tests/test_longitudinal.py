@@ -18,6 +18,19 @@ def test_structured_checkin_is_idempotent_and_audits_no_intervention(client):
         assert db.query(EmaCheckIn).count()==1
         assert db.query(InterventionDecision).count()==1
 
+def test_checkin_immediately_advances_success(client):
+    before=client.get("/api/success").json()
+    badge_before=next(x for x in before["badges"] if x["id"]=="checkin_1")
+    assert badge_before["current"]==0 and badge_before["unlocked"] is False
+    client.post("/api/check-ins",json=CHECKIN)
+    after=client.get("/api/success").json()
+    badge_after=next(x for x in after["badges"] if x["id"]=="checkin_1")
+    assert badge_after["current"]==1 and badge_after["unlocked"] is True
+
+def test_legacy_journal_routes_are_removed(client):
+    assert client.get("/api/journal").status_code==404
+    assert client.post("/api/journal",json={"day":"2026-08-25"}).status_code in {404,405}
+
 def test_jitai_offer_and_not_now_are_audited(client):
     client.patch("/api/jitai/config",json={"enabled":True,"max_notifications_per_week":2})
     result=client.post("/api/check-ins",json=CHECKIN).json()

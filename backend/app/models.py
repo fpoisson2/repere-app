@@ -115,19 +115,6 @@ class Goal(Base):
     due_date: Mapped[date | None] = mapped_column(Date)
     started_on: Mapped[date | None] = mapped_column(Date, default=date.today)
 
-class Journal(Base):
-    __tablename__ = "journal"
-    __table_args__ = (UniqueConstraint("user_id", "day"),)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    day: Mapped[date] = mapped_column(Date, index=True)
-    mood: Mapped[int | None]
-    stress: Mapped[int | None]
-    fatigue: Mapped[int | None]
-    craving: Mapped[int | None]
-    notes: Mapped[str | None] = mapped_column(Text)
-    tags: Mapped[list] = mapped_column(JSON, default=list)
-
 class TrackedDay(Base):
     __tablename__ = "tracked_days"
     __table_args__ = (UniqueConstraint("user_id", "day"),)
