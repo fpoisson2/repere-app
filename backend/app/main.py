@@ -478,7 +478,6 @@ def success(u:User=Depends(current_user),db:Session=Depends(get_db)):
         if value is None:return False
         return value>=goal.target if goal.kind in {"min_alcohol_free_days","monthly_reduction"} else value<=goal.target
     active_goals=db.scalars(select(Goal).where(Goal.user_id==u.id,Goal.active.is_(True))).all()
-    goal_progress={}
     for goal in active_goals:
         if goal.kind not in eligible or db.scalar(select(GoalAchievement.id).where(GoalAchievement.goal_id==goal.id)):continue
         achieved=False;evidence={}
@@ -490,13 +489,11 @@ def success(u:User=Depends(current_user),db:Session=Depends(get_db)):
             for week in complete_weeks:
                 current=current+1 if goal_met(goal,week[field]) else 0;best=max(best,current)
             achieved=best>=(goal.consecutive_weeks or 1);evidence={"consecutive_weeks":best}
-            goal_progress[goal.id]=(best,goal.consecutive_weeks or 1)
         elif goal.temporal_mode=="consecutive_weeks" and goal.kind=="max_moving_7_grams":
             current=best=0
             for week in complete_weeks:
                 current=current+1 if goal_met(goal,week["total_grams"]/7) else 0;best=max(best,current)
             achieved=best>=(goal.consecutive_weeks or 1);evidence={"consecutive_weeks":best}
-            goal_progress[goal.id]=(best,goal.consecutive_weeks or 1)
         if achieved:db.add(GoalAchievement(user_id=u.id,goal_id=goal.id,goal_kind=goal.kind,
           target_snapshot=goal.target,temporal_mode=goal.temporal_mode,evidence=evidence))
     db.flush()
@@ -522,29 +519,16 @@ def success(u:User=Depends(current_user),db:Session=Depends(get_db)):
       ("checkin_7","Prendre du recul","7 check-ins personnels complétés",checkins,7,"checkin"),
       ("checkin_30","Repères réguliers","30 check-ins personnels complétés",checkins,30,"checkin"),
       ("checkin_90","Habitude de réflexion","90 check-ins personnels complétés",checkins,90,"checkin"),
+      ("goals_1","Premier objectif atteint","1 objectif personnel atteint",len(achievements),1,"goal"),
+      ("goals_3","Cap des trois objectifs","3 objectifs personnels atteints",len(achievements),3,"goal"),
+      ("goals_5","Progression durable","5 objectifs personnels atteints",len(achievements),5,"goal"),
+      ("goals_10","Dix caps franchis","10 objectifs personnels atteints",len(achievements),10,"goal"),
       ("weekend_2","Guerrier du week-end · 2 semaines","Consommation limitée au samedi et dimanche pendant 2 semaines complètes",weekend_streak,2,"weekend"),
       ("weekend_4","Guerrier du week-end · 1 mois","Consommation limitée au samedi et dimanche pendant 4 semaines complètes",weekend_streak,4,"weekend"),
       ("weekend_8","Guerrier du week-end · 2 mois","Consommation limitée au samedi et dimanche pendant 8 semaines complètes",weekend_streak,8,"weekend"),
       ("weekend_12","Guerrier du week-end · 3 mois","Consommation limitée au samedi et dimanche pendant 12 semaines complètes",weekend_streak,12,"weekend"),
     ]
     badges=[{"id":i,"title":t,"description":d,"unlocked":current>=target,"current":min(current,target),"target":target,"progress_percent":min(100,current/target*100),"category":c} for i,t,d,current,target,c in definitions]
-    achieved_by_goal={x.goal_id:x for x in achievements if x.goal_id is not None}
-    for goal in active_goals:
-        achievement=achieved_by_goal.get(goal.id);current,target=goal_progress.get(goal.id,(0,goal.consecutive_weeks or 1))
-        if goal.temporal_mode=="deadline":
-            value=current_values.get(goal.kind);met=goal_met(goal,value);current,target=(1 if met else 0),1
-        unlocked=achievement is not None
-        badges.append({"id":f"goal_{goal.id}","title":"Objectif personnel",
-          "description":f"{goal_labels.get(goal.kind,goal.kind)} · cible {goal.target:g}" +
-            (f" · {goal.consecutive_weeks} semaines consécutives" if goal.temporal_mode=="consecutive_weeks" else f" · avant le {goal.due_date}"),
-          "unlocked":unlocked,"current":target if unlocked else min(current,target),"target":target,
-          "progress_percent":100 if unlocked else min(100,current/target*100),"category":"goal",
-          "achieved_at":achievement.achieved_at_utc if achievement else None})
-    active_ids={g.id for g in active_goals}
-    badges.extend({"id":f"goal_achieved_{x.id}","title":"Objectif atteint",
-      "description":f"Objectif personnel atteint · {goal_labels.get(x.goal_kind,x.goal_kind)} · cible {x.target_snapshot:g}",
-      "unlocked":True,"current":1,"target":1,"progress_percent":100,"category":"goal","achieved_at":x.achieved_at_utc}
-      for x in achievements if x.goal_id not in active_ids)
     db.commit()
     return {"unlocked_count":sum(x["unlocked"] for x in badges),"total_count":len(badges),"badges":badges,
       "principle":"Les succès récompensent le suivi, les jours sans alcool et la réduction — jamais une forte consommation."}

@@ -40,19 +40,17 @@ def test_achieved_goal_creates_persistent_success(client):
     goal=client.post("/api/goals",json={"kind":"max_grams_session","target":100,
       "temporal_mode":"deadline","due_date":"2099-12-31"}).json()
     first=client.get("/api/success").json()
-    badge=next(x for x in first["badges"] if x["category"]=="goal")
-    assert badge["unlocked"] is True and badge["title"]=="Objectif personnel"
+    badge=next(x for x in first["badges"] if x["id"]=="goals_1")
+    assert badge["unlocked"] is True and badge["current"]==1
     client.delete(f"/api/goals/{goal['id']}")
     second=client.get("/api/success").json()
-    assert any(x["category"]=="goal" and x["unlocked"] for x in second["badges"])
+    assert next(x for x in second["badges"] if x["id"]=="goals_1")["unlocked"] is True
 
-def test_active_goals_are_visible_as_locked_successes(client):
-    goal=client.post("/api/goals",json={"kind":"max_drinking_days","target":3,
-      "temporal_mode":"consecutive_weeks","consecutive_weeks":3}).json()
+def test_goal_milestone_successes_are_visible_before_unlock(client):
     data=client.get("/api/success").json()
-    badge=next(x for x in data["badges"] if x["id"]==f"goal_{goal['id']}")
-    assert badge["category"]=="goal" and badge["unlocked"] is False
-    assert badge["target"]==3 and "3 semaines consécutives" in badge["description"]
+    badges={x["id"]:x for x in data["badges"]}
+    assert badges["goals_1"]["unlocked"] is False and badges["goals_1"]["target"]==1
+    assert badges["goals_3"]["target"]==3 and badges["goals_10"]["target"]==10
 
 def test_jitai_offer_and_not_now_are_audited(client):
     client.patch("/api/jitai/config",json={"enabled":True,"max_notifications_per_week":2})
