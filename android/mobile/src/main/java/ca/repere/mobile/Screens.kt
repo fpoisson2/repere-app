@@ -2,11 +2,14 @@ package ca.repere.mobile
 
 import android.content.Context
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -31,6 +34,9 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import ca.repere.data.DrinkEntity
+import ca.repere.core.alcoholGrams
+import ca.repere.core.canadianStandards
 
 /* ---------- shared building blocks ---------- */
 
@@ -129,9 +135,10 @@ private fun ChartFrame(topLabel: String, bottomStart: String, bottomEnd: String,
 }
 
 @Composable
-private fun BarChart(values: List<Double>, colors: List<Color>, threshold: Double? = null, modifier: Modifier = Modifier) {
+private fun BarChart(values: List<Double>, colors: List<Color>, threshold: Double? = null, modifier: Modifier = Modifier, labels:List<String> = emptyList(), unit:String="") {
     val max = (values.maxOrNull() ?: 0.0).coerceAtLeast(threshold ?: 0.0).coerceAtLeast(0.01)
-    Canvas(modifier.fillMaxWidth().height(140.dp)) {
+    var selected by remember(values){mutableStateOf<Int?>(null)}
+    Column { Canvas(modifier.fillMaxWidth().height(140.dp).pointerInput(values){detectTapGestures{tap->if(values.isNotEmpty())selected=((tap.x/size.width)*values.size).toInt().coerceIn(0,values.lastIndex)}}) {
         if (values.isEmpty()) return@Canvas
         // horizontal gridlines at 0 / 50 / 100 %
         listOf(0f, .5f, 1f).forEach { f ->
@@ -149,18 +156,20 @@ private fun BarChart(values: List<Double>, colors: List<Color>, threshold: Doubl
             val y = (size.height - (t / max * size.height)).toFloat()
             drawLine(Color(0xFFD9534F), Offset(0f, y), Offset(size.width, y), 2f)
         }
-    }
+        selected?.let{i->val x=(i+.5f)*size.width/values.size;drawLine(Amber,Offset(x,0f),Offset(x,size.height),3f)}
+    };selected?.let{i->ChartSelection((labels.getOrNull(i)?:"Valeur ${i+1}"),"${fmt(values[i],2)}$unit")} }
 }
 
 /** Daily bars behind one or more overlay lines, shared Y scale. */
 @Composable
-private fun ComboChart(bars: List<Double>, lines: List<Pair<Color, List<Double?>>>, threshold: Double? = null, modifier: Modifier = Modifier) {
+private fun ComboChart(bars: List<Double>, lines: List<Pair<Color, List<Double?>>>, threshold: Double? = null, modifier: Modifier = Modifier, labels:List<String> = emptyList(), unit:String="", lineNames:List<String> = listOf("7 j","30 j","90 j")) {
     val allLine = lines.flatMap { it.second }.filterNotNull()
     val max = (bars.maxOrNull() ?: 0.0)
         .coerceAtLeast(allLine.maxOrNull() ?: 0.0)
         .coerceAtLeast(threshold ?: 0.0)
         .coerceAtLeast(0.01)
-    Canvas(modifier.fillMaxWidth().height(150.dp)) {
+    var selected by remember(bars){mutableStateOf<Int?>(null)}
+    Column { Canvas(modifier.fillMaxWidth().height(150.dp).pointerInput(bars){detectTapGestures{tap->if(bars.isNotEmpty())selected=((tap.x/size.width)*bars.size).toInt().coerceIn(0,bars.lastIndex)}}) {
         listOf(0f, .5f, 1f).forEach { f ->
             val y = size.height * (1 - f)
             drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
@@ -189,16 +198,18 @@ private fun ComboChart(bars: List<Double>, lines: List<Pair<Color, List<Double?>
             }
             drawPath(path, color, style = Stroke(width = 3f, cap = StrokeCap.Round))
         }
-    }
+        selected?.let{i->val x=i*size.width/(bars.size-1).coerceAtLeast(1);drawLine(Amber,Offset(x,0f),Offset(x,size.height),3f);drawCircle(Amber,6f,Offset(x,(size.height-(bars[i]/max*size.height)).toFloat()))}
+    };selected?.let{i->val details=buildString{append("Jour : ${fmt(bars[i],2)}$unit");lines.forEachIndexed{n,(_,s)->s.getOrNull(i)?.let{append(" · ${lineNames.getOrNull(n)?:"Moy."} : ${fmt(it,2)}$unit")}}};ChartSelection(labels.getOrNull(i)?:"Point ${i+1}",details)} }
 }
 
 @Composable
-private fun LineChart(values: List<Double?>, modifier: Modifier = Modifier, color: Color = Pine) {
+private fun LineChart(values: List<Double?>, modifier: Modifier = Modifier, color: Color = Pine, labels:List<String> = emptyList(), unit:String="") {
     val present = values.filterNotNull()
     val min = present.minOrNull() ?: 0.0
     val max = (present.maxOrNull() ?: 1.0)
     val span = (max - min).takeIf { it > 0 } ?: 1.0
-    Canvas(modifier.fillMaxWidth().height(130.dp)) {
+    var selected by remember(values){mutableStateOf<Int?>(null)}
+    Column { Canvas(modifier.fillMaxWidth().height(130.dp).pointerInput(values){detectTapGestures{tap->if(values.isNotEmpty())selected=((tap.x/size.width)*values.size).toInt().coerceIn(0,values.lastIndex)}}) {
         listOf(0f, .5f, 1f).forEach { f ->
             val y = size.height * (1 - f)
             drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
@@ -213,8 +224,11 @@ private fun LineChart(values: List<Double?>, modifier: Modifier = Modifier, colo
             if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
         }
         drawPath(path, color, style = Stroke(width = 3f, cap = StrokeCap.Round))
-    }
+        selected?.let{i->val x=i*size.width/(values.size-1).coerceAtLeast(1);drawLine(Amber,Offset(x,0f),Offset(x,size.height),3f)}
+    };selected?.let{i->ChartSelection(labels.getOrNull(i)?:"Point ${i+1}",values[i]?.let{"${fmt(it,2)}$unit"}?:"Aucune donnée")} }
 }
+
+@Composable private fun ChartSelection(label:String,value:String){Surface(color=Mint.copy(alpha=.45f),shape=RoundedCornerShape(10.dp),modifier=Modifier.padding(top=8.dp).fillMaxWidth()){Column(Modifier.padding(horizontal=12.dp,vertical=8.dp)){Text(label,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.labelMedium);Text(value,style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.75f))}}}
 
 private fun fmt(value: Double?, digits: Int = 1): String =
     if (value == null) "—" else String.format(Locale.CANADA_FRENCH, "%.${digits}f", value)
@@ -227,35 +241,62 @@ private val HEALTH_LABELS = mapOf(
 )
 
 @Composable
-fun StatsScreen(context: Context) {
+fun StatsScreen(context: Context, drinks:List<DrinkEntity>) {
     var start by remember { mutableStateOf(LocalDate.now().minusDays(89)) }
     var end by remember { mutableStateOf(LocalDate.now()) }
     var custom by remember { mutableStateOf(false) }
-    val query = "start=$start&end=$end"
-    Column(Modifier.fillMaxSize()) {
+    val days=remember(drinks,start,end){generateSequence(start){if(it<end)it.plusDays(1)else null}.map { day ->
+        val rows=drinks.filter { it.startedAt.take(10)==day.toString() };LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)},rows)
+    }.toList()};val drinking=days.filter{it.grams>0};val totalStd=days.sumOf{it.standards};val totalGrams=days.sumOf{it.grams}
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PageHeaderLite("Analyse", "Stats")
         StatsPeriodSelector(start, end, custom, onPreset = { days -> start=LocalDate.now().minusDays(days-1L);end=LocalDate.now();custom=false }, onCustom = { a,b -> start=a;end=b;custom=true })
-        key(query) { RemoteScreen(context, "", "", { ctx ->
-        val stats = Net.json(ctx, "/api/stats?$query")
-        val trends = runCatching { Net.json(ctx, "/api/stats/trends") }.getOrNull()
-        val health = runCatching { Net.json(ctx, "/api/stats/health?$query") }.getOrNull()
-        Triple(stats, trends, health)
-    }) { (stats, trends, health) ->
-        val period = stats.optJSONObject("period") ?: JSONObject()
-        val grams = period.optJSONObject("grams") ?: JSONObject()
-        val standards = period.optJSONObject("standards") ?: JSONObject()
         SectionCard("Période observée", "Du ${start.format(STAT_DATE)} au ${end.format(STAT_DATE)}") {
-            StatRow("Jours observés", period.optInt("days_observed").toString())
-            StatRow("Jours sans alcool", "${period.optInt("alcohol_free_days")} (${fmt(period.numOrNull("alcohol_free_percent"), 0)} %)")
-            StatRow("Total standards", fmt(period.numOrNull("total_standards")))
-            StatRow("Moyenne / jour", "${fmt(standards.numOrNull("mean"), 2)} std")
-            StatRow("Médiane / jour", "${fmt(standards.numOrNull("median"), 2)} std")
-            StatRow("Maximum", "${fmt(standards.numOrNull("max"), 2)} std · ${fmt(grams.numOrNull("max"), 0)} g")
+            StatRow("Jours",days.size.toString());StatRow("Jours sans consommation","${days.count{it.grams==0.0}} (${fmt(days.count{it.grams==0.0}*100.0/days.size.coerceAtLeast(1),0)} %)")
+            StatRow("Total standards",fmt(totalStd,2));StatRow("Moyenne / jour","${fmt(totalStd/days.size.coerceAtLeast(1),2)} std")
+            StatRow("Maximum","${fmt(days.maxOfOrNull{it.standards},2)} std · ${fmt(days.maxOfOrNull{it.grams},0)} g")
         }
-        if (trends != null) TrendSection(trends, start, end)
-        if (health != null) HealthSection(health)
-    } }
+        LocalTrendSection(days)
+        HeatmapSection(days)
+        PeriodBars("Évolution par semaine",aggregateLocal(days,false))
+        PeriodBars("Évolution par mois",aggregateLocal(days,true))
+        SessionsSection(drinking.flatMap{it.drinks})
+        Spacer(Modifier.height(28.dp))
     }
+}
+
+private data class LocalStatDay(val date:LocalDate,val grams:Double,val standards:Double,val drinks:List<DrinkEntity>)
+private data class LocalPeriod(val label:String,val standards:Double,val alcoholFree:Int)
+
+@Composable private fun LocalTrendSection(days:List<LocalStatDay>){
+    var metric by remember{mutableStateOf("standards")};val daily=days.map{if(metric=="grams")it.grams else it.standards}
+    fun moving(n:Int)=daily.indices.map{i->daily.subList(maxOf(0,i-n+1),i+1).average()}
+    SectionCard("Moyennes mobiles","Barres = jour · vert = 7 j · ambre = 30 j · gris = 90 j"){
+        Row{listOf("standards" to "Standards","grams" to "Grammes").forEach{(v,l)->FilterChip(metric==v,{metric=v},{Text(l)},Modifier.padding(end=6.dp))}}
+        ChartFrame(if(metric=="grams")"g / jour" else "standards / jour",days.firstOrNull()?.date.toString().takeLast(5),days.lastOrNull()?.date.toString().takeLast(5)){
+            ComboChart(daily,listOf(Pine to moving(7),Amber to moving(30),Pine.copy(alpha=.4f) to moving(90)),if(metric=="standards")3.0 else null,labels=days.map{it.date.toString()},unit=if(metric=="grams")" g" else " std")
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable private fun HeatmapSection(days:List<LocalStatDay>){val max=days.maxOfOrNull{it.grams}?.coerceAtLeast(.01)?:.01;var selected by remember(days){mutableStateOf<LocalStatDay?>(null)}
+    SectionCard("Calendrier de consommation","Intensité quotidienne · calcul local"){
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement=Arrangement.spacedBy(3.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){days.forEach{d->Box(Modifier.size(14.dp).background(if(selected==d)Amber else if(d.grams==0.0)Mint.copy(alpha=.45f)else Pine.copy(alpha=(.2+.8*d.grams/max).toFloat()),RoundedCornerShape(2.dp)).pointerInput(d){detectTapGestures{selected=d}})}}
+        Spacer(Modifier.height(8.dp));Text("${days.firstOrNull()?.date?:"—"} — ${days.lastOrNull()?.date?:"—"}",style=MaterialTheme.typography.labelSmall,color=Pine.copy(alpha=.55f))
+        selected?.let{ChartSelection(it.date.toString(),"${fmt(it.grams,1)} g · ${fmt(it.standards,2)} std · ${it.drinks.sumOf{d->d.quantity}} consommation${if(it.drinks.sumOf{d->d.quantity}>1)"s"else""}")}
+    }
+}
+
+private fun aggregateLocal(days:List<LocalStatDay>,monthly:Boolean):List<LocalPeriod> = days.groupBy{if(monthly)it.date.withDayOfMonth(1) else it.date.minusDays(it.date.dayOfWeek.value-1L)}.toSortedMap().map{(date,rows)->LocalPeriod(date.toString(),rows.sumOf{it.standards},rows.count{it.grams==0.0})}.takeLast(12)
+
+@Composable private fun PeriodBars(title:String,rows:List<LocalPeriod>){SectionCard(title,"Standards totaux · 12 dernières périodes"){
+    ChartFrame("standards",rows.firstOrNull()?.label?.takeLast(5)?:"",rows.lastOrNull()?.label?.takeLast(5)?:""){BarChart(rows.map{it.standards},rows.map{Pine},labels=rows.map{it.label},unit=" std")}
+    rows.takeLast(6).forEach{StatRow(it.label,"${fmt(it.standards,1)} std · ${it.alcoholFree} j sans consommation")}
+}}
+
+@Composable private fun SessionsSection(drinks:List<DrinkEntity>){val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();sorted.forEach{d->val at=runCatching{java.time.OffsetDateTime.parse(d.startedAt)}.getOrNull();val last=sessions.lastOrNull()?.lastOrNull()?.let{runCatching{java.time.OffsetDateTime.parse(it.startedAt).plusMinutes(it.durationMinutes.toLong())}.getOrNull()};if(last==null||at==null||java.time.Duration.between(last,at).toHours()>=8)sessions.add(mutableListOf(d))else sessions.last().add(d)}
+    SectionCard("Sessions","Écart de 8 h · calcul local") { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)};StatRow(rows.first().startedAt.take(10),"${fmt(std,2)} std · ${rows.sumOf{it.quantity}} consommation${if(rows.sumOf{it.quantity}>1)"s"else""}") } }
 }
 
 private val STAT_DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)
@@ -280,7 +321,7 @@ private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onP
         DatePickerDialog(onDismissRequest={dialog=null},confirmButton={TextButton(onClick={
             val picked=state.selectedDateMillis?.let{Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()}?:initial
             if(target=="start"){draftStart=picked;dialog="end"}else{draftEnd=picked;if(draftStart<=picked)onCustom(draftStart,picked);dialog=null}
-        }){Text(if(target=="start")"Suivant":"Appliquer")}},dismissButton={TextButton(onClick={dialog=null}){Text("Annuler")}}){DatePicker(state)}
+        }){Text(if(target=="start") "Suivant" else "Appliquer")}},dismissButton={TextButton(onClick={dialog=null}){Text("Annuler")}}){DatePicker(state)}
     }
 }
 
@@ -470,7 +511,7 @@ fun GoalsScreen(context: Context) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(tick) {
         refreshing = true; error = null
-        runCatching { Net.array(context, "/api/goals") }.onSuccess { goals = it }.onFailure { error = it.message }
+        runCatching { Net.array(context, "/api/goals") }.onSuccess { goals = it }.onFailure { goals=JSONArray();error = "Hors ligne · les objectifs locaux restent disponibles" }
         refreshing = false
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }

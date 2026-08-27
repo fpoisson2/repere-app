@@ -1,0 +1,40 @@
+package ca.repere.core
+
+import java.time.OffsetDateTime
+import kotlin.math.max
+
+data class BacProfile(val weightKg:Double,val distributionRatio:Double,val eliminationRate:Double=.015)
+data class BacDrink(val startedAt:OffsetDateTime,val durationMinutes:Int,val alcoholGrams:Double)
+
+fun distributionRatio(sex:String,heightCm:Double?,weightKg:Double,stored:Double=.6):Double {
+    if(heightCm!=null&&heightCm>100){
+        val male=2.447-.09516*40+.1074*heightCm+.3362*weightKg
+        val female=-2.097+.1069*heightCm+.2466*weightKg
+        val tbw=if(sex=="male")male else if(sex=="female")female else (male+female)/2
+        return (tbw/(weightKg*.8065)).coerceIn(.4,.9)
+    }
+    return if(sex=="male").68 else if(sex=="female").55 else stored
+}
+
+/** Android equivalent of backend services.bac_at. Keep both implementations aligned. */
+fun bacAt(drinks:List<BacDrink>,profile:BacProfile,moment:OffsetDateTime):Double {
+    var absorbed=0.0;var eliminated=0.0
+    drinks.forEach { drink ->
+        if(!moment.isAfter(drink.startedAt))return@forEach
+        val absorptionMinutes=max(30,drink.durationMinutes+30)
+        val elapsedMinutes=java.time.Duration.between(drink.startedAt,moment).toMillis()/60_000.0
+        val fraction=(elapsedMinutes/absorptionMinutes).coerceIn(0.0,1.0)
+        absorbed+=drink.alcoholGrams*fraction
+        val fullAt=drink.startedAt.plusMinutes(absorptionMinutes.toLong())
+        val eliminationHours=max(0.0,java.time.Duration.between(fullAt,moment).toMillis()/3_600_000.0)
+        eliminated+=profile.eliminationRate*eliminationHours*profile.weightKg*profile.distributionRatio*10
+    }
+    val remaining=max(0.0,absorbed-eliminated)
+    return max(0.0,remaining/(profile.weightKg*1000*profile.distributionRatio)*100)
+}
+
+fun peakBac(drinks:List<BacDrink>,profile:BacProfile):Double? {
+    if(drinks.isEmpty()||profile.weightKg<=0||profile.distributionRatio<=0)return null
+    val start=drinks.minOf { it.startedAt }.minusHours(1)
+    return (0..36*12).maxOf { bacAt(drinks,profile,start.plusMinutes(it*5L)) }
+}

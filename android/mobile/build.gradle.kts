@@ -12,7 +12,7 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "ca.repere.mobile"
     compileSdk = 36
-    defaultConfig { applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36; versionCode = 36010010; versionName = "1.6.0" }
+    defaultConfig { applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36; versionCode = 36010013; versionName = "1.6.0" }
     buildFeatures { compose = true; buildConfig = true }
     defaultConfig {
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://repere.ve2fpd.com\"")

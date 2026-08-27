@@ -97,6 +97,10 @@ class SyncRepository(context: Context) {
         var more:Boolean
         do {
             val response=request(server,token,"/api/sync?cursor=$cursor","GET",null)
+            response.optJSONObject("bac_profile")?.let { profile ->
+                val weight=profile.optDouble("weight_kg",Double.NaN);val ratio=profile.optDouble("distribution_ratio",Double.NaN)
+                if(weight.isFinite()&&ratio.isFinite())CredentialStore(appContext).saveBacProfile(weight,ratio,profile.optDouble("elimination_rate",.015))
+            }
             val changes=response.getJSONArray("changes")
             for(index in 0 until changes.length()) {
                 val change=changes.getJSONObject(index);val serverId=change.getLong("entity_id")

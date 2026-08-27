@@ -168,6 +168,7 @@ def test_mobile_sync_snapshot_changes_deletions_and_idempotency(client):
     assert first==replay
     snapshot=client.get("/api/sync?cursor=0",headers=auth).json()
     assert snapshot["snapshot"] is True and snapshot["changes"][0]["payload"]["drink_name"]=="Hors ligne"
+    assert snapshot["bac_profile"]["weight_kg"]>0 and snapshot["bac_profile"]["distribution_ratio"]>0
     cursor=snapshot["cursor"]
     deletion={"mutation_id":"mobile-delete-1","operation":"delete","server_id":first["server_id"]}
     assert client.post("/api/sync",headers=auth,json={"mutations":[deletion]}).status_code==200

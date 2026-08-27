@@ -40,6 +40,14 @@ a 6-digit pairing code). Trust the code; update that doc when you get the chance
 
 ## How the pieces talk
 
+- **Android must remain fully usable offline.** The Android app must not depend on an active
+  Internet connection for its user-facing screens. Reads use locally persisted data; writes are
+  recorded locally first and synchronized with the backend when connectivity returns. Derived
+  values needed by Android are computed from persisted local inputs, using the same canonical
+  formulas as the backend. Local Android state is the source of truth;
+  server synchronization is always secondary, opportunistic, and must never block a feature or
+  offline use. Do not introduce a UI flow whose normal use requires a live request.
+
 - **Auth.** The phone authenticates with **OAuth2 Authorization Code + PKCE** against the
   user's self-hosted server (`client_id=repere-android`, redirect `ca.repere.app://oauth2redirect`,
   no secret). The resulting bearer token works on the **whole API** — `current_user` and
@@ -49,11 +57,11 @@ a 6-digit pairing code). Trust the code; update that doc when you get the chance
   journal (`create`/`update`/`delete`). Everything else (stats, goals, check-ins, sober days,
   settings) is a direct authenticated call via `Net` (`android/mobile/.../Net.kt`) and needs
   connectivity.
-- **BAC is computed server-side only.** `services.bac_at` / `bac_projection`, using
-  `services.body_r(user)` (Watson TBW from `sex` + `height_cm` + `weight_kg`; `PATCH /api/settings`
-  recomputes and stores `distribution_ratio`). Clients only display: web via `/api/bac`, Android
-  via `/api/bac`, watch via `bac_g_per_l` in `/api/wear/state`. Never reimplement the model in a
-  client.
+- **BAC uses the same model everywhere.** The canonical implementation is `services.bac_at` /
+  `bac_projection`, using `services.body_r(user)` (Watson TBW from `sex` + `height_cm` +
+  `weight_kg`). Android must also carry an equivalent, tested implementation and persist the
+  required profile parameters locally so BAC remains available offline. Keep both implementations
+  mathematically aligned whenever the model changes. Always display the driving disclaimer.
 - **Day bucketing** uses the user's `day_start_hour` (default 8). Server endpoints that need
   "today" in the user's timezone accept the client's local time (see `/api/wear/state?now=`).
 - **Watch refresh.** After a phone sync, `pokeWatch()` bumps `/repere/config`; the watch's

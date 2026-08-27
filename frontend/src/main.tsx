@@ -2174,8 +2174,18 @@ function HealthTrends() {
 function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
   const [observed, setObserved] = useState("90"),
     [metric, setMetric] = useState<"grams" | "standards">("grams"),
+    [customStart, setCustomStart] = useState(""),
+    [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10)),
     allRows = trends.moving_averages["7"] || [],
-    rows = observed === "all" ? allRows : allRows.slice(-Number(observed)),
+    rows = observed === "all"
+      ? allRows
+      : observed === "custom"
+        ? allRows.filter(
+            (row: any) =>
+              (!customStart || row.date >= customStart) &&
+              (!customEnd || row.date <= customEnd),
+          )
+        : allRows.slice(-Number(observed)),
     rowsByDate = (window: string) =>
       new Map<string, any>(
         (trends.moving_averages[window] || []).map((row: any) => [
@@ -2235,17 +2245,44 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
           >
             Standards
           </button>
-          {["30", "90", "180", "365", "all"].map((value) => (
+          {["30", "90", "180", "365", "all", "custom"].map((value) => (
             <button
               key={value}
               className={observed === value ? "active" : ""}
               onClick={() => setObserved(value)}
             >
-              {value === "all" ? "Tout" : `${value} j`}
+              {value === "all"
+                ? "Tout"
+                : value === "custom"
+                  ? "Personnalisée"
+                  : `${value} j`}
             </button>
           ))}
         </div>
       </div>
+      {observed === "custom" && (
+        <div className="form historyfilters">
+          <label>
+            Du
+            <input
+              type="date"
+              value={customStart}
+              max={customEnd}
+              onChange={(event) => setCustomStart(event.target.value)}
+            />
+          </label>
+          <label>
+            Au
+            <input
+              type="date"
+              value={customEnd}
+              min={customStart}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={(event) => setCustomEnd(event.target.value)}
+            />
+          </label>
+        </div>
+      )}
       <div className="linechart">
         <div className="chartaxis" aria-hidden="true">
           <span>{maximum.toFixed(metric === "grams" ? 0 : 1)}</span>

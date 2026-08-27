@@ -24,6 +24,16 @@ class CredentialStore(private val context:Context) {
     fun setOauthTransient(value:String){put("oauth_transient",value)}
     fun pendingWearOperations():String=get("pending_wear_operations","[]")
     fun setPendingWearOperations(value:String){put("pending_wear_operations",value)}
+    fun bacWeightKg():Double?=get("bac_weight_kg","").toDoubleOrNull()
+    fun bacDistributionRatio():Double?=get("bac_distribution_ratio","").toDoubleOrNull()
+    fun bacEliminationRate():Double=get("bac_elimination_rate","0.015").toDoubleOrNull()?:0.015
+    fun saveBacProfile(weightKg:Double,distributionRatio:Double,eliminationRate:Double=.015){
+        put("bac_weight_kg",weightKg.toString());put("bac_distribution_ratio",distributionRatio.toString());put("bac_elimination_rate",eliminationRate.toString())
+    }
+    fun cachedApi(path:String):String=get("api_cache_${path.hashCode()}","")
+    fun cacheApi(path:String,value:String){put("api_cache_${path.hashCode()}",value)}
+    fun pendingApiOperations():String=get("pending_api_operations","[]")
+    fun setPendingApiOperations(value:String){put("pending_api_operations",value)}
     fun syncEnabled():Boolean=secure.getBoolean("sync_enabled",false)
     fun setSyncEnabled(enabled:Boolean){secure.edit().putBoolean("sync_enabled",enabled).apply()}
     fun save(server:String,token:String){put("server",server.trimEnd('/'));put("token",token);setSyncEnabled(true);legacy.edit().remove("server").remove("token").apply()}

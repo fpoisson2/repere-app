@@ -47,6 +47,11 @@ import ca.repere.data.SyncRepository
 import ca.repere.data.SyncWorker
 import ca.repere.core.canadianStandards
 import ca.repere.core.CredentialStore
+import ca.repere.core.BacDrink
+import ca.repere.core.BacProfile
+import ca.repere.core.distributionRatio
+import ca.repere.core.peakBac
+import ca.repere.core.bacAt
 import ca.repere.data.HealthLocalRepository
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
@@ -107,7 +112,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     fun synchronize()=scope.launch {
         if(token.isBlank()||!syncEnabled)return@launch
         syncing=true;status="Synchronisation…"
-        runCatching{repository.synchronize()}.onSuccess{status="À jour";pokeWatch(context)}
+        runCatching{Net.flush(context);repository.synchronize()}.onSuccess{status="À jour";pokeWatch(context)}
             .onFailure{status="Hors ligne · les saisies sont conservées"}
         syncing=false
     }
@@ -134,7 +139,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
                         repository.updateOffline(id,name,volume,abv,quantity,startedAt,duration);status="Modification en attente";synchronize()
                     }},
                     onDelete={id -> scope.launch{repository.markDeleted(id);status="Suppression en attente";synchronize()}})
-                Destination.STATS -> StatsScreen(context)
+                Destination.STATS -> StatsScreen(context,drinks)
                 Destination.INSIGHTS -> InsightsScreen(context)
                 Destination.SUCCESS -> SuccessScreen(context)
                 Destination.GOALS -> GoalsScreen(context)
@@ -225,7 +230,7 @@ private fun MaintenantScreen(
                     }
                 }
             }
-            if (isToday) BacCard(context) else if(dayDrinks.isNotEmpty()) HistoricalBacCard(context,day)
+            if (isToday) BacCard(context,dayDrinks) else if(dayDrinks.isNotEmpty()) HistoricalBacCard(context,dayDrinks)
             LastCheckInCard(context, day, checkInRefresh)
             OutlinedButton(onClick = { checkIn = true }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()) {
                 Icon(Icons.AutoMirrored.Filled.Assignment, null); Spacer(Modifier.width(8.dp)); Text("Faire un check-in")
@@ -411,6 +416,7 @@ private fun PresetEditorDialog(context:Context, preset:PresetEntity, onDismiss:(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BodyMetricsSection(context:Context) {
+    val localProfile=remember { CredentialStore(context) }
     var sex by remember { mutableStateOf("unspecified") }
     var sexOpen by remember { mutableStateOf(false) }
     var weight by remember { mutableStateOf("") }
@@ -419,11 +425,14 @@ private fun BodyMetricsSection(context:Context) {
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
+        localProfile.bacWeightKg()?.let { weight=it.toInt().toString() }
+        ratio=localProfile.bacDistributionRatio()
         runCatching { Net.json(context, "/api/auth/me") }.onSuccess {
             sex = it.optString("sex", "unspecified").ifBlank { "unspecified" }
             weight = if (it.isNull("weight_kg")) "" else it.optDouble("weight_kg").toInt().toString()
             height = if (it.isNull("height_cm")) "" else it.optDouble("height_cm").toInt().toString()
             ratio = if (it.isNull("effective_distribution_ratio")) it.doubleOrNull("distribution_ratio") else it.optDouble("effective_distribution_ratio")
+            if(weight.toDoubleOrNull()!=null&&ratio!=null)localProfile.saveBacProfile(weight.toDouble(),ratio!!)
         }
     }
     val sexLabel = mapOf("unspecified" to "Non précisé", "female" to "Femme", "male" to "Homme")
@@ -441,27 +450,29 @@ private fun BodyMetricsSection(context:Context) {
     ratio?.let { Text("Facteur de distribution calculé : ${String.format(Locale.CANADA_FRENCH, "%.3f", it)}", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .7f)) }
     Button(onClick = {
         scope.launch {
+            val localWeight=weight.toDoubleOrNull();val localRatio=localWeight?.let { distributionRatio(sex,height.toDoubleOrNull(),it,ratio?:.6) }
+            if(localWeight==null||localRatio==null){message="Poids requis pour calculer l’alcoolémie";return@launch}
+            ratio=localRatio;localProfile.saveBacProfile(localWeight,localRatio);message="Profil enregistré sur l’appareil"
             val body = JSONObject().put("sex", sex)
             weight.toDoubleOrNull()?.let { body.put("weight_kg", it) }
             height.toDoubleOrNull()?.let { body.put("height_cm", it) }
             runCatching { Net.send(context, "/api/settings", body, "PATCH") }
-                .onSuccess { ratio = it.doubleOrNull("distribution_ratio") ?: ratio; message = "Profil enregistré" }
-                .onFailure { message = it.message ?: "Enregistrement impossible" }
+                .onSuccess { ratio = it.doubleOrNull("distribution_ratio") ?: ratio;localProfile.saveBacProfile(localWeight,ratio!!);message = "Profil enregistré et synchronisé" }
+                .onFailure { message = "Profil enregistré sur l’appareil · synchronisation en attente" }
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil") }
     message?.let { Text(it, color = Pine.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable
-private fun BacCard(context:Context) {
-    var bac by remember { mutableStateOf<JSONObject?>(null) }
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(tick) { runCatching { Net.json(context, "/api/bac") }.onSuccess { bac = it } }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
-    val data = bac ?: return
-    val current = data.optDouble("current_bac_percent", 0.0) * 100
-    val peak = data.optDouble("peak_bac_percent", 0.0) * 100
-    val zeroAt = if (data.isNull("estimated_zero_at")) null else data.optString("estimated_zero_at")
+private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
+    val credentials=remember{CredentialStore(context)};val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio()
+    val localDrinks=remember(drinks){drinks.mapNotNull{d->runCatching{BacDrink(OffsetDateTime.parse(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()}}
+    val profile=if(weight!=null&&ratio!=null)BacProfile(weight,ratio,credentials.bacEliminationRate())else null
+    if(profile==null){Card(Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White)){Text("Configure ton profil corporel dans Réglages pour estimer l’alcoolémie hors ligne.",Modifier.padding(20.dp),color=Pine.copy(alpha=.7f))};return}
+    val now=OffsetDateTime.now();val current=bacAt(localDrinks,profile,now)*100;val peak=(peakBac(localDrinks,profile)?:0.0)*100
+    val future=bacAt(localDrinks,profile,now.plusMinutes(10))*100;val trend=if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable"
+    val zero=(1..24*12).firstOrNull{bacAt(localDrinks,profile,now.plusMinutes(it*5L))<=.00001}?.let{now.plusMinutes(it*5L)}
     Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
             Text("ALCOOLÉMIE ESTIMÉE", style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .6f), fontWeight = FontWeight.Bold)
@@ -471,9 +482,9 @@ private fun BacCard(context:Context) {
             }
             Text(
                 when {
-                    data.optBoolean("already_zero") -> "À zéro"
-                    else -> "Tendance : ${data.optString("trend")} · pic ${String.format(Locale.CANADA_FRENCH, "%.2f", peak)} g/L" +
-                        (zeroAt?.let { " · retour à 0 vers ${runCatching { OffsetDateTime.parse(it).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault("")}" } ?: "")
+                    current<=.001 -> "À zéro"
+                    else -> "Tendance : $trend · pic ${String.format(Locale.CANADA_FRENCH, "%.2f", peak)} g/L"+
+                        (zero?.let{" · retour à 0 vers ${it.format(DateTimeFormatter.ofPattern("HH:mm"))}"}?:"")
                 },
                 style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .72f),
             )
@@ -486,17 +497,17 @@ private fun BacCard(context:Context) {
 }
 
 @Composable
-private fun HistoricalBacCard(context:Context,day:LocalDate) {
-    var data by remember(day) { mutableStateOf<JSONObject?>(null) }
-    var loaded by remember(day) { mutableStateOf(false) }
-    LaunchedEffect(day) { data=runCatching{Net.json(context,"/api/bac/day?day=$day")}.getOrNull();loaded=true }
+private fun HistoricalBacCard(context:Context,drinks:List<DrinkEntity>) {
+    val credentials=remember { CredentialStore(context) }
+    val peak=remember(drinks) {
+        val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio()
+        if(weight==null||ratio==null)null else peakBac(drinks.mapNotNull { d -> runCatching { BacDrink(OffsetDateTime.parse(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789) }.getOrNull() },BacProfile(weight,ratio,credentials.bacEliminationRate()))
+    }
     Card(Modifier.padding(horizontal=20.dp,vertical=10.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White),shape=RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
             Text("Alcoolémie maximale estimée",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
-            when { data!=null -> {
-                val peak=data!!.optJSONObject("peak")?.optDouble("bac_percent",0.0)?.times(100)?:0.0
-                Text(String.format(Locale.CANADA_FRENCH,"%.2f g/L",peak),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,color=Pine)
-            };!loaded -> Text("Calcul…",color=Pine.copy(alpha=.6f));else -> Text("Estimation indisponible",color=Pine.copy(alpha=.65f)) }
+            if(peak!=null)Text(String.format(Locale.CANADA_FRENCH,"%.2f g/L",peak*100),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,color=Pine)
+            else Text("Configure ton profil corporel dans Réglages.",color=Pine.copy(alpha=.65f))
             Text("Estimation mathématique, jamais une autorisation de conduire.",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.62f))
         }
     }
