@@ -176,6 +176,14 @@ def test_sqlite_backup_is_downloadable(client):
     response=client.get("/api/backup")
     assert response.status_code==200 and response.content.startswith(b"SQLite format 3")
 
+def test_consumptions_csv_is_downloadable(client):
+    client.post("/api/drinks",json={"drink_name":"Export test","volume_ml":341,"abv_percent":5,"started_at":"2026-08-25T20:00:00","duration_minutes":30})
+    response=client.get("/api/export?format=csv")
+    assert response.status_code==200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    assert "Export test" in response.text
+
 def test_pwa_and_foldable_navigation_assets():
     root=Path(__file__).resolve().parents[2]/"frontend"
     manifest=json.loads((root/"public/manifest.webmanifest").read_text(encoding="utf-8"))
