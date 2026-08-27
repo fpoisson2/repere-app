@@ -34,6 +34,7 @@ def test_bac_nonnegative_absorption_elimination():
     peak=bac_at([d],u,start+timedelta(minutes=60))[0]
     late=bac_at([d],u,start+timedelta(hours=24))[0]
     assert 0<early<peak and late==0
+    assert peak*10==pytest.approx(.392,rel=.01)  # bac_percent -> g/L
 
 def test_bac_already_zero_has_no_future_return_time():
     user=User(weight_kg=75,distribution_ratio=.68,elimination_rate=.015)
@@ -166,9 +167,11 @@ def test_mobile_sync_snapshot_changes_deletions_and_idempotency(client):
     first=client.post("/api/sync",headers=auth,json={"mutations":[mutation]}).json()["results"][0]
     replay=client.post("/api/sync",headers=auth,json={"mutations":[mutation]}).json()["results"][0]
     assert first==replay
+    assert client.post("/api/days/sober",json={"date":"2026-08-23"}).status_code==200
     snapshot=client.get("/api/sync?cursor=0",headers=auth).json()
     assert snapshot["snapshot"] is True and snapshot["changes"][0]["payload"]["drink_name"]=="Hors ligne"
     assert snapshot["bac_profile"]["weight_kg"]>0 and snapshot["bac_profile"]["distribution_ratio"]>0
+    assert snapshot["tracked_days"]==[{"day":"2026-08-23","sober":True}]
     cursor=snapshot["cursor"]
     deletion={"mutation_id":"mobile-delete-1","operation":"delete","server_id":first["server_id"]}
     assert client.post("/api/sync",headers=auth,json={"mutations":[deletion]}).status_code==200
@@ -179,6 +182,13 @@ def test_bac_day_projection(client):
     client.post("/api/drinks",json={"drink_name":"Test","volume_ml":341,"abv_percent":5,"started_at":"2026-08-24T20:00:00","duration_minutes":30})
     data=client.get("/api/bac/day?day=2026-08-24").json()
     assert len(data["points"])==433 and data["peak"]["bac_percent"]>=0
+
+def test_bac_uses_client_local_clock_and_plausible_gl_units(client):
+    client.patch("/api/settings",json={"weight_kg":75,"height_cm":175,"sex":"male"})
+    client.post("/api/drinks",json={"drink_name":"Bière","volume_ml":333,"abv_percent":5,"started_at":"2026-08-27T13:43:00","duration_minutes":30})
+    data=client.get("/api/bac?now=2026-08-27T14:42:00").json()
+    assert data["current_bac_percent"]>0
+    assert .1<data["peak_bac_percent"]*10<.5
 
 def test_change_password_logs_out(client):
     response=client.post("/api/auth/change-password",json={"current_password":"motdepasse","new_password":"nouveaumotdepasse"})

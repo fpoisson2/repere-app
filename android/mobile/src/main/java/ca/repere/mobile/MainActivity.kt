@@ -45,6 +45,8 @@ import ca.repere.data.DrinkEntity
 import ca.repere.data.PresetEntity
 import ca.repere.data.SyncRepository
 import ca.repere.data.SyncWorker
+import ca.repere.data.TrackedDayEntity
+import ca.repere.data.HealthAggregateEntity
 import ca.repere.core.canadianStandards
 import ca.repere.core.CredentialStore
 import ca.repere.core.BacDrink
@@ -52,6 +54,7 @@ import ca.repere.core.BacProfile
 import ca.repere.core.distributionRatio
 import ca.repere.core.peakBac
 import ca.repere.core.bacAt
+import ca.repere.core.parseDrinkTime
 import ca.repere.data.HealthLocalRepository
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
@@ -101,6 +104,8 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     val repository=remember{SyncRepository(context)}
     val drinks by repository.observeDrinks().collectAsState(initial=emptyList())
     val presets by repository.observePresets().collectAsState(initial=emptyList())
+    val trackedDays by repository.observeTrackedDays().collectAsState(initial=emptyList())
+    val healthRows by remember{HealthLocalRepository(context)}.observe().collectAsState(initial=emptyList())
     var destination by remember{mutableStateOf(Destination.NOW)}
     var server by remember{mutableStateOf(credentials.server(BuildConfig.DEFAULT_SERVER_URL))}
     var token by remember{mutableStateOf(credentials.token())}
@@ -131,15 +136,16 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     }}}){padding ->
         Box(Modifier.padding(padding).fillMaxSize()){
             when(destination){
-                Destination.NOW -> MaintenantScreen(context,drinks,presets,status,openCheckIn,{synchronize()},
+                Destination.NOW -> MaintenantScreen(context,drinks,presets,trackedDays,status,openCheckIn,{synchronize()},
                     onCustom={name,volume,abv,quantity,startedAt,duration -> scope.launch{
                         repository.createCustom(name,volume,abv,quantity,startedAt,duration);status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
                     }},
                     onEdit={id,name,volume,abv,quantity,startedAt,duration -> scope.launch{
                         repository.updateOffline(id,name,volume,abv,quantity,startedAt,duration);status="Modification en attente";synchronize()
                     }},
-                    onDelete={id -> scope.launch{repository.markDeleted(id);status="Suppression en attente";synchronize()}})
-                Destination.STATS -> StatsScreen(context,drinks)
+                    onDelete={id -> scope.launch{repository.markDeleted(id);status="Suppression en attente";synchronize()}},
+                    onSober={day,sober->scope.launch{repository.setSoberDay(day,sober)}})
+                Destination.STATS -> StatsScreen(context,drinks,trackedDays,healthRows)
                 Destination.INSIGHTS -> InsightsScreen(context)
                 Destination.SUCCESS -> SuccessScreen(context)
                 Destination.GOALS -> GoalsScreen(context)
@@ -175,9 +181,9 @@ private val PRESET_NEW = PresetEntity(0L, "", "autre", 333.0, 5.0)
 @Composable
 private fun MaintenantScreen(
     context:Context,
-    drinks:List<DrinkEntity>, presets:List<PresetEntity>, status:String, openCheckIn:Boolean, onSync:()->Unit,
+    drinks:List<DrinkEntity>, presets:List<PresetEntity>, trackedDays:List<TrackedDayEntity>, status:String, openCheckIn:Boolean, onSync:()->Unit,
     onCustom:(String,Double,Double,Int,String,Int)->Unit,
-    onEdit:(String,String,Double,Double,Int,String,Int)->Unit, onDelete:(String)->Unit,
+    onEdit:(String,String,Double,Double,Int,String,Int)->Unit, onDelete:(String)->Unit, onSober:(String,Boolean)->Unit,
 ) {
     var day by remember { mutableStateOf(LocalDate.now()) }
     val isToday = day == LocalDate.now()
@@ -197,11 +203,8 @@ private fun MaintenantScreen(
     val refreshing = status.startsWith("Synchronisation")
     LaunchedEffect(dayKey) { dayMessage = null }
     LaunchedEffect(openCheckIn) { if (openCheckIn) checkIn = true }
-    LaunchedEffect(dayKey, dayDrinks.size) {
-        dayStatus = if (dayDrinks.isEmpty())
-            runCatching { Net.array(context, "/api/days?start=$dayKey&end=$dayKey") }.getOrNull()
-                ?.let { if (it.length() > 0) it.getJSONObject(0).optString("status") else null }
-        else null
+    LaunchedEffect(dayKey, dayDrinks.size, trackedDays) {
+        dayStatus = if(dayDrinks.isNotEmpty())null else if(trackedDays.any{it.day==dayKey&&it.sober})"sober" else null
     }
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = onSync, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -268,7 +271,7 @@ private fun MaintenantScreen(
                         onClick = {
                             scope.launch {
                                 runCatching { Net.send(context, "/api/days/sober/$dayKey", JSONObject(), "DELETE") }
-                                    .onSuccess { dayStatus = null; dayMessage = "Journée sobre annulée" }
+                                    .onSuccess { onSober(dayKey,false);dayStatus = null; dayMessage = "Journée sobre annulée" }
                                     .onFailure { dayMessage = it.message ?: "Impossible d’annuler" }
                             }
                         },
@@ -280,7 +283,7 @@ private fun MaintenantScreen(
                         onClick = {
                             scope.launch {
                                 runCatching { Net.send(context, "/api/days/sober", JSONObject().put("date", dayKey)) }
-                                    .onSuccess { soberSuccess = true; dayStatus = "sober" }
+                                    .onSuccess { onSober(dayKey,true);soberSuccess = true; dayStatus = "sober" }
                                     .onFailure { dayMessage = it.message ?: "Impossible d’enregistrer" }
                             }
                         },
@@ -329,7 +332,7 @@ private fun DrinkEditorDialog(
     var abv by remember{mutableStateOf((existing?.abvPercent ?: prefillAbv).toString())}
     var quantity by remember{mutableStateOf((existing?.quantity ?: 1).toString())}
     var duration by remember{mutableStateOf((existing?.durationMinutes ?: 30).toString())}
-    val parsed = remember { runCatching { OffsetDateTime.parse(existing?.startedAt) }.getOrNull() }
+    val parsed = remember(existing?.startedAt) { existing?.startedAt?.let { runCatching { parseDrinkTime(it) }.getOrNull() } }
     var time by remember { mutableStateOf(parsed?.toLocalTime() ?: java.time.LocalTime.now().withSecond(0).withNano(0)) }
     var date by remember { mutableStateOf(parsed?.toLocalDate() ?: day) }
     var pickTime by remember { mutableStateOf(false) }
@@ -429,9 +432,10 @@ private fun BodyMetricsSection(context:Context) {
         ratio=localProfile.bacDistributionRatio()
         runCatching { Net.json(context, "/api/auth/me") }.onSuccess {
             sex = it.optString("sex", "unspecified").ifBlank { "unspecified" }
-            weight = if (it.isNull("weight_kg")) "" else it.optDouble("weight_kg").toInt().toString()
-            height = if (it.isNull("height_cm")) "" else it.optDouble("height_cm").toInt().toString()
-            ratio = if (it.isNull("effective_distribution_ratio")) it.doubleOrNull("distribution_ratio") else it.optDouble("effective_distribution_ratio")
+            if(!it.isNull("weight_kg"))weight = it.optDouble("weight_kg").toInt().toString()
+            if(!it.isNull("height_cm"))height = it.optDouble("height_cm").toInt().toString()
+            val remoteRatio=if (it.isNull("effective_distribution_ratio")) it.doubleOrNull("distribution_ratio") else it.optDouble("effective_distribution_ratio")
+            if(remoteRatio!=null)ratio=remoteRatio
             if(weight.toDoubleOrNull()!=null&&ratio!=null)localProfile.saveBacProfile(weight.toDouble(),ratio!!)
         }
     }
@@ -467,11 +471,11 @@ private fun BodyMetricsSection(context:Context) {
 @Composable
 private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
     val credentials=remember{CredentialStore(context)};val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio()
-    val localDrinks=remember(drinks){drinks.mapNotNull{d->runCatching{BacDrink(OffsetDateTime.parse(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()}}
+    val localDrinks=remember(drinks){drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()}}
     val profile=if(weight!=null&&ratio!=null)BacProfile(weight,ratio,credentials.bacEliminationRate())else null
     if(profile==null){Card(Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White)){Text("Configure ton profil corporel dans Réglages pour estimer l’alcoolémie hors ligne.",Modifier.padding(20.dp),color=Pine.copy(alpha=.7f))};return}
-    val now=OffsetDateTime.now();val current=bacAt(localDrinks,profile,now)*100;val peak=(peakBac(localDrinks,profile)?:0.0)*100
-    val future=bacAt(localDrinks,profile,now.plusMinutes(10))*100;val trend=if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable"
+    val now=OffsetDateTime.now();val current=bacAt(localDrinks,profile,now)*10;val peak=(peakBac(localDrinks,profile)?:0.0)*10
+    val future=bacAt(localDrinks,profile,now.plusMinutes(10))*10;val trend=if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable"
     val zero=(1..24*12).firstOrNull{bacAt(localDrinks,profile,now.plusMinutes(it*5L))<=.00001}?.let{now.plusMinutes(it*5L)}
     Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
@@ -482,7 +486,7 @@ private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
             }
             Text(
                 when {
-                    current<=.001 -> "À zéro"
+                    current<=.001 -> "À zéro · pic estimé ${String.format(Locale.CANADA_FRENCH, "%.2f", peak)} g/L"
                     else -> "Tendance : $trend · pic ${String.format(Locale.CANADA_FRENCH, "%.2f", peak)} g/L"+
                         (zero?.let{" · retour à 0 vers ${it.format(DateTimeFormatter.ofPattern("HH:mm"))}"}?:"")
                 },
@@ -499,14 +503,14 @@ private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
 @Composable
 private fun HistoricalBacCard(context:Context,drinks:List<DrinkEntity>) {
     val credentials=remember { CredentialStore(context) }
-    val peak=remember(drinks) {
-        val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio()
-        if(weight==null||ratio==null)null else peakBac(drinks.mapNotNull { d -> runCatching { BacDrink(OffsetDateTime.parse(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789) }.getOrNull() },BacProfile(weight,ratio,credentials.bacEliminationRate()))
+    val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio()
+    val peak=remember(drinks,weight,ratio) {
+        if(weight==null||ratio==null)null else peakBac(drinks.mapNotNull { d -> runCatching { BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789) }.getOrNull() },BacProfile(weight,ratio,credentials.bacEliminationRate()))
     }
     Card(Modifier.padding(horizontal=20.dp,vertical=10.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White),shape=RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
             Text("Alcoolémie maximale estimée",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
-            if(peak!=null)Text(String.format(Locale.CANADA_FRENCH,"%.2f g/L",peak*100),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,color=Pine)
+            if(peak!=null)Text(String.format(Locale.CANADA_FRENCH,"%.2f g/L",peak*10),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,color=Pine)
             else Text("Configure ton profil corporel dans Réglages.",color=Pine.copy(alpha=.65f))
             Text("Estimation mathématique, jamais une autorisation de conduire.",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.62f))
         }
@@ -556,7 +560,7 @@ private fun DrinkRow(drink:DrinkEntity,onEdit:(()->Unit)?=null,onDelete:(()->Uni
     Row(Modifier.padding(horizontal=20.dp,vertical=6.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(18.dp)).padding(start=16.dp,top=8.dp,bottom=8.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){
         Box(Modifier.size(42.dp).background(if(drink.dirty)Color(0xFFFFE8C2) else Mint,RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center){Text(if(drink.dirty)"↥" else "✓",fontWeight=FontWeight.Bold,color=Pine)}
         Column(Modifier.padding(start=12.dp).weight(1f)){Text(drink.name,fontWeight=FontWeight.Bold)
-            Text("${runCatching{OffsetDateTime.parse(drink.startedAt).format(DateTimeFormatter.ofPattern("HH:mm"))}.getOrDefault("")} · ${drink.volumeMl.toInt()} ml · ${drink.abvPercent}% · ×${drink.quantity}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
+            Text("${runCatching{parseDrinkTime(drink.startedAt).format(DateTimeFormatter.ofPattern("HH:mm"))}.getOrDefault("")} · ${drink.volumeMl.toInt()} ml · ${drink.abvPercent}% · ×${drink.quantity}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
         if(onEdit!=null)IconButton(onClick=onEdit){Icon(Icons.Filled.Edit,"Modifier",tint=Pine)}
         if(onDelete!=null)IconButton(onClick=onDelete){Icon(Icons.Filled.Delete,"Supprimer",tint=Pine.copy(alpha=.7f))}
     }

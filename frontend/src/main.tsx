@@ -196,7 +196,7 @@ function App() {
       const [p, s, b] = await Promise.all([
         api("/presets"),
         api("/stats?days=30"),
-        api("/bac"),
+        api(`/bac?now=${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 19)}`),
       ]);
       setPresets(p);
       setStats(s);
@@ -509,7 +509,7 @@ function Dashboard({
       <section className="card hero">
         <div className="eyebrow">Maintenant · estimation</div>
         <div className="bac">
-          {((bac?.current_bac_percent || 0) * 100).toFixed(2)}{" "}
+          {((bac?.current_bac_percent || 0) * 10).toFixed(2)}{" "}
           <small>g/L</small>
         </div>
         <span className="trend">
@@ -519,7 +519,7 @@ function Dashboard({
         <div className="metrics">
           <Metric
             label="Pic"
-            value={((bac?.peak_bac_percent || 0) * 100).toFixed(2)}
+            value={((bac?.peak_bac_percent || 0) * 10).toFixed(2)}
           />
           <Metric
             label="Retour à 0"
@@ -682,7 +682,7 @@ function Dashboard({
                     <b>{session.grams_per_hour.toFixed(1)}</b> g/h
                   </span>
                   <span>
-                    <b>{(session.peak_bac_percent * 100).toFixed(2)}</b> g/L pic
+                    <b>{(session.peak_bac_percent * 10).toFixed(2)}</b> g/L pic
                   </span>
                 </div>
                 <div className="sessionactions">
@@ -967,7 +967,7 @@ function BacDayChart({ data }: { data: any }) {
           <h3>Courbe BAC</h3>
         </div>
         <span className="muted">
-          Pic {((data.peak?.bac_percent || 0) * 100).toFixed(2)} g/L ·{" "}
+          Pic {((data.peak?.bac_percent || 0) * 10).toFixed(2)} g/L ·{" "}
           {data.estimated_zero_at
             ? `retour à 0 vers ${new Date(data.estimated_zero_at).toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}`
             : "retour à 0 non calculé"}
@@ -1024,7 +1024,7 @@ function BacDayChart({ data }: { data: any }) {
                   minute: "2-digit",
                 })}
               </b>
-              <span>{(selected.bac_percent * 100).toFixed(2)} g/L</span>
+              <span>{(selected.bac_percent * 10).toFixed(2)} g/L</span>
               <span>
                 {selected.remaining_grams.toFixed(1)} g estimés dans l’organisme
               </span>
@@ -1581,7 +1581,7 @@ function Stats({ stats }: { stats: any }) {
                       {s.drink_count > 1 ? "s" : ""}
                     </td>
                     <td>{s.standards.toFixed(2)}</td>
-                    <td>{(s.peak_bac_percent * 100).toFixed(2)} g/L</td>
+                    <td>{(s.peak_bac_percent * 10).toFixed(2)} g/L</td>
                   </tr>
                 ))}
             </tbody>

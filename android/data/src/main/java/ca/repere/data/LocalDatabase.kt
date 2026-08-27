@@ -36,6 +36,9 @@ data class PresetEntity(
 @Entity(tableName = "sync_state")
 data class SyncState(@PrimaryKey val account: String = "default", val cursor: Long = 0)
 
+@Entity(tableName="tracked_days")
+data class TrackedDayEntity(@PrimaryKey val day:String,val sober:Boolean=true)
+
 @Entity(tableName="health_aggregates")
 data class HealthAggregateEntity(@PrimaryKey val id:String,val localDate:String,val recordType:String,
     val originPackage:String,val payload:String,val dirty:Boolean=true)
@@ -81,6 +84,18 @@ interface RepereDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSyncState(state: SyncState)
 
+    @Query("SELECT * FROM tracked_days ORDER BY day")
+    fun observeTrackedDays():Flow<List<TrackedDayEntity>>
+
+    @Insert(onConflict=OnConflictStrategy.REPLACE)
+    suspend fun putTrackedDays(rows:List<TrackedDayEntity>)
+
+    @Query("DELETE FROM tracked_days")
+    suspend fun clearTrackedDays()
+
+    @Query("DELETE FROM tracked_days WHERE day=:day")
+    suspend fun deleteTrackedDay(day:String)
+
     @Query("SELECT * FROM health_aggregates ORDER BY localDate DESC, recordType")
     fun observeHealth():Flow<List<HealthAggregateEntity>>
 
@@ -94,7 +109,7 @@ interface RepereDao {
     suspend fun markHealthSynced(ids:List<String>)
 }
 
-@Database(entities = [DrinkEntity::class, PresetEntity::class, SyncState::class,HealthAggregateEntity::class], version = 2, exportSchema = true)
+@Database(entities = [DrinkEntity::class, PresetEntity::class, SyncState::class,HealthAggregateEntity::class,TrackedDayEntity::class], version = 3, exportSchema = true)
 abstract class RepereDatabase : RoomDatabase() {
     abstract fun dao(): RepereDao
 
@@ -103,9 +118,12 @@ abstract class RepereDatabase : RoomDatabase() {
         private val MIGRATION_1_2=object:Migration(1,2){override fun migrate(db:SupportSQLiteDatabase){
             db.execSQL("CREATE TABLE IF NOT EXISTS health_aggregates (id TEXT NOT NULL PRIMARY KEY, localDate TEXT NOT NULL, recordType TEXT NOT NULL, originPackage TEXT NOT NULL, payload TEXT NOT NULL, dirty INTEGER NOT NULL)")
         }}
+        private val MIGRATION_2_3=object:Migration(2,3){override fun migrate(db:SupportSQLiteDatabase){
+            db.execSQL("CREATE TABLE IF NOT EXISTS tracked_days (day TEXT NOT NULL PRIMARY KEY, sober INTEGER NOT NULL)")
+        }}
         fun get(context: Context): RepereDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, RepereDatabase::class.java, "repere.db")
-                .addMigrations(MIGRATION_1_2).build().also { instance = it }
+                .addMigrations(MIGRATION_1_2,MIGRATION_2_3).build().also { instance = it }
         }
     }
 }

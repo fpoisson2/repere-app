@@ -12,6 +12,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 import ca.repere.core.CredentialStore
+import ca.repere.core.normalizeDrinkTime
 
 /**
  * Coordinates Room-first synchronization. The HTTP transport is intentionally injected next;
@@ -23,6 +24,7 @@ class SyncRepository(context: Context) {
 
     fun observeDrinks():Flow<List<DrinkEntity>> = dao.observeDrinks()
     fun observePresets():Flow<List<PresetEntity>> = dao.observePresets()
+    fun observeTrackedDays():Flow<List<TrackedDayEntity>> = dao.observeTrackedDays()
     suspend fun recentStartTimes():List<String> = dao.recentStartTimes()
 
     suspend fun ensureOfflineDefaults(){
@@ -101,6 +103,8 @@ class SyncRepository(context: Context) {
                 val weight=profile.optDouble("weight_kg",Double.NaN);val ratio=profile.optDouble("distribution_ratio",Double.NaN)
                 if(weight.isFinite()&&ratio.isFinite())CredentialStore(appContext).saveBacProfile(weight,ratio,profile.optDouble("elimination_rate",.015))
             }
+            val tracked=response.optJSONArray("tracked_days") ?: JSONArray();val trackedRows=(0 until tracked.length()).map{tracked.getJSONObject(it)}.map{TrackedDayEntity(it.getString("day"),it.optBoolean("sober",true))}
+            dao.clearTrackedDays();if(trackedRows.isNotEmpty())dao.putTrackedDays(trackedRows)
             val changes=response.getJSONArray("changes")
             for(index in 0 until changes.length()) {
                 val change=changes.getJSONObject(index);val serverId=change.getLong("entity_id")
@@ -116,6 +120,8 @@ class SyncRepository(context: Context) {
             more=response.getBoolean("has_more")
         } while(more)
     }
+
+    suspend fun setSoberDay(day:String,sober:Boolean){if(sober)dao.putTrackedDays(listOf(TrackedDayEntity(day)))else dao.deleteTrackedDay(day)}
 
     private suspend fun pullPresets(server:String,token:String) {
         val rows=requestArray(server,token,"/api/wear/presets")
@@ -138,7 +144,7 @@ class SyncRepository(context: Context) {
 
     private fun JSONObject.toEntity(clientId:String)=DrinkEntity(clientId,getLong("id"),getString("drink_name"),
         nullableString("drink_type"),getDouble("volume_ml"),getDouble("abv_percent"),
-        getInt("quantity"),getString("started_at"),getInt("duration_minutes"),
+        getInt("quantity"),normalizeDrinkTime(getString("started_at")),getInt("duration_minutes"),
         nullableString("notes"),optBoolean("is_active"),false,false,null)
 
     private fun JSONObject.nullableString(key:String)=if(!has(key)||isNull(key))null else getString(key)

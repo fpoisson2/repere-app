@@ -29,14 +29,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import ca.repere.data.DrinkEntity
+import ca.repere.data.TrackedDayEntity
+import ca.repere.data.HealthAggregateEntity
 import ca.repere.core.alcoholGrams
 import ca.repere.core.canadianStandards
+import ca.repere.core.parseDrinkTime
 
 /* ---------- shared building blocks ---------- */
 
@@ -241,36 +245,43 @@ private val HEALTH_LABELS = mapOf(
 )
 
 @Composable
-fun StatsScreen(context: Context, drinks:List<DrinkEntity>) {
+fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<TrackedDayEntity>, healthRows:List<HealthAggregateEntity>) {
     var start by remember { mutableStateOf(LocalDate.now().minusDays(89)) }
     var end by remember { mutableStateOf(LocalDate.now()) }
     var custom by remember { mutableStateOf(false) }
     val days=remember(drinks,start,end){generateSequence(start){if(it<end)it.plusDays(1)else null}.map { day ->
-        val rows=drinks.filter { it.startedAt.take(10)==day.toString() };LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)},rows)
-    }.toList()};val drinking=days.filter{it.grams>0};val totalStd=days.sumOf{it.standards};val totalGrams=days.sumOf{it.grams}
+        val rows=drinks.filter { it.startedAt.take(10)==day.toString() };val sober=trackedDays.any{it.day==day.toString()&&it.sober};LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)},rows,rows.isNotEmpty()||sober,sober)
+    }.toList()};val observed=days.filter{it.observed};val drinking=days.filter{it.grams>0};val totalStd=observed.sumOf{it.standards};val totalGrams=observed.sumOf{it.grams}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PageHeaderLite("Analyse", "Stats")
         StatsPeriodSelector(start, end, custom, onPreset = { days -> start=LocalDate.now().minusDays(days-1L);end=LocalDate.now();custom=false }, onCustom = { a,b -> start=a;end=b;custom=true })
         SectionCard("Période observée", "Du ${start.format(STAT_DATE)} au ${end.format(STAT_DATE)}") {
-            StatRow("Jours",days.size.toString());StatRow("Jours sans consommation","${days.count{it.grams==0.0}} (${fmt(days.count{it.grams==0.0}*100.0/days.size.coerceAtLeast(1),0)} %)")
-            StatRow("Total standards",fmt(totalStd,2));StatRow("Moyenne / jour","${fmt(totalStd/days.size.coerceAtLeast(1),2)} std")
-            StatRow("Maximum","${fmt(days.maxOfOrNull{it.standards},2)} std · ${fmt(days.maxOfOrNull{it.grams},0)} g")
+            StatRow("Jours observés",observed.size.toString());StatRow("Jours sans alcool","${observed.count{it.sober}} (${fmt(observed.count{it.sober}*100.0/observed.size.coerceAtLeast(1),0)} %)")
+            StatRow("Jours sans donnée",days.count{!it.observed}.toString());StatRow("Total standards",fmt(totalStd,2));StatRow("Moyenne / jour observé","${fmt(totalStd/observed.size.coerceAtLeast(1),2)} std")
+            StatRow("Maximum","${fmt(observed.maxOfOrNull{it.standards},2)} std · ${fmt(observed.maxOfOrNull{it.grams},0)} g")
         }
+        DistributionSummary(observed)
         LocalTrendSection(days)
         HeatmapSection(days)
+        WeekdayChart(days)
+        HourChart(drinking.flatMap{it.drinks})
+        DistributionChart(days)
+        FirstDrinkChart(drinking)
+        DayToDayChart(days)
         PeriodBars("Évolution par semaine",aggregateLocal(days,false))
-        PeriodBars("Évolution par mois",aggregateLocal(days,true))
+        PeriodBars("Évolution par mois",aggregateLocal(days,true),monthly=true)
+        LocalHealthSection(healthRows,start,end)
         SessionsSection(drinking.flatMap{it.drinks})
         Spacer(Modifier.height(28.dp))
     }
 }
 
-private data class LocalStatDay(val date:LocalDate,val grams:Double,val standards:Double,val drinks:List<DrinkEntity>)
+private data class LocalStatDay(val date:LocalDate,val grams:Double,val standards:Double,val drinks:List<DrinkEntity>,val observed:Boolean,val sober:Boolean)
 private data class LocalPeriod(val label:String,val standards:Double,val alcoholFree:Int)
 
 @Composable private fun LocalTrendSection(days:List<LocalStatDay>){
     var metric by remember{mutableStateOf("standards")};val daily=days.map{if(metric=="grams")it.grams else it.standards}
-    fun moving(n:Int)=daily.indices.map{i->daily.subList(maxOf(0,i-n+1),i+1).average()}
+    fun moving(n:Int)=days.indices.map{i->days.subList(maxOf(0,i-n+1),i+1).filter{it.observed}.map{if(metric=="grams")it.grams else it.standards}.takeIf{it.isNotEmpty()}?.average()}
     SectionCard("Moyennes mobiles","Barres = jour · vert = 7 j · ambre = 30 j · gris = 90 j"){
         Row{listOf("standards" to "Standards","grams" to "Grammes").forEach{(v,l)->FilterChip(metric==v,{metric=v},{Text(l)},Modifier.padding(end=6.dp))}}
         ChartFrame(if(metric=="grams")"g / jour" else "standards / jour",days.firstOrNull()?.date.toString().takeLast(5),days.lastOrNull()?.date.toString().takeLast(5)){
@@ -282,22 +293,56 @@ private data class LocalPeriod(val label:String,val standards:Double,val alcohol
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun HeatmapSection(days:List<LocalStatDay>){val max=days.maxOfOrNull{it.grams}?.coerceAtLeast(.01)?:.01;var selected by remember(days){mutableStateOf<LocalStatDay?>(null)}
     SectionCard("Calendrier de consommation","Intensité quotidienne · calcul local"){
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement=Arrangement.spacedBy(3.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){days.forEach{d->Box(Modifier.size(14.dp).background(if(selected==d)Amber else if(d.grams==0.0)Mint.copy(alpha=.45f)else Pine.copy(alpha=(.2+.8*d.grams/max).toFloat()),RoundedCornerShape(2.dp)).pointerInput(d){detectTapGestures{selected=d}})}}
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement=Arrangement.spacedBy(3.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){days.forEach{d->Box(Modifier.size(14.dp).background(if(selected==d)Amber else if(!d.observed)Color(0xFFE2E5E3) else if(d.sober)Mint.copy(alpha=.65f)else Pine.copy(alpha=(.2+.8*d.grams/max).toFloat()),RoundedCornerShape(2.dp)).pointerInput(d){detectTapGestures{selected=d}})}}
         Spacer(Modifier.height(8.dp));Text("${days.firstOrNull()?.date?:"—"} — ${days.lastOrNull()?.date?:"—"}",style=MaterialTheme.typography.labelSmall,color=Pine.copy(alpha=.55f))
-        selected?.let{ChartSelection(it.date.toString(),"${fmt(it.grams,1)} g · ${fmt(it.standards,2)} std · ${it.drinks.sumOf{d->d.quantity}} consommation${if(it.drinks.sumOf{d->d.quantity}>1)"s"else""}")}
+        selected?.let{ChartSelection(it.date.toString(),if(!it.observed)"Aucune donnée" else if(it.sober)"Journée sobre · 0 g" else "${fmt(it.grams,1)} g · ${fmt(it.standards,2)} std · ${it.drinks.sumOf{d->d.quantity}} consommation${if(it.drinks.sumOf{d->d.quantity}>1)"s"else""}")}
     }
 }
 
-private fun aggregateLocal(days:List<LocalStatDay>,monthly:Boolean):List<LocalPeriod> = days.groupBy{if(monthly)it.date.withDayOfMonth(1) else it.date.minusDays(it.date.dayOfWeek.value-1L)}.toSortedMap().map{(date,rows)->LocalPeriod(date.toString(),rows.sumOf{it.standards},rows.count{it.grams==0.0})}.takeLast(12)
+private fun aggregateLocal(days:List<LocalStatDay>,monthly:Boolean):List<LocalPeriod> = days.groupBy{if(monthly)it.date.withDayOfMonth(1) else it.date.minusDays(it.date.dayOfWeek.value-1L)}.toSortedMap().map{(date,rows)->LocalPeriod(date.toString(),rows.filter{it.observed}.sumOf{it.standards},rows.count{it.sober})}.takeLast(12)
 
-@Composable private fun PeriodBars(title:String,rows:List<LocalPeriod>){SectionCard(title,"Standards totaux · 12 dernières périodes"){
+@Composable private fun PeriodBars(title:String,rows:List<LocalPeriod>,monthly:Boolean=false){SectionCard(title,"Standards totaux · 12 dernières périodes"){
     ChartFrame("standards",rows.firstOrNull()?.label?.takeLast(5)?:"",rows.lastOrNull()?.label?.takeLast(5)?:""){BarChart(rows.map{it.standards},rows.map{Pine},labels=rows.map{it.label},unit=" std")}
-    rows.takeLast(6).forEach{StatRow(it.label,"${fmt(it.standards,1)} std · ${it.alcoholFree} j sans consommation")}
+    rows.takeLast(if(monthly)12 else 6).forEach{val label=if(monthly)runCatching{LocalDate.parse(it.label).format(DateTimeFormatter.ofPattern("MMM yyyy",Locale.CANADA_FRENCH))}.getOrDefault(it.label)else it.label;StatRow(label,"${fmt(it.standards,1)} std · ${it.alcoholFree} j sobres")}
 }}
 
-@Composable private fun SessionsSection(drinks:List<DrinkEntity>){val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();sorted.forEach{d->val at=runCatching{java.time.OffsetDateTime.parse(d.startedAt)}.getOrNull();val last=sessions.lastOrNull()?.lastOrNull()?.let{runCatching{java.time.OffsetDateTime.parse(it.startedAt).plusMinutes(it.durationMinutes.toLong())}.getOrNull()};if(last==null||at==null||java.time.Duration.between(last,at).toHours()>=8)sessions.add(mutableListOf(d))else sessions.last().add(d)}
+@Composable private fun SessionsSection(drinks:List<DrinkEntity>){val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();sorted.forEach{d->val at=runCatching{parseDrinkTime(d.startedAt)}.getOrNull();val last=sessions.lastOrNull()?.lastOrNull()?.let{runCatching{parseDrinkTime(it.startedAt).plusMinutes(it.durationMinutes.toLong())}.getOrNull()};if(last==null||at==null||java.time.Duration.between(last,at).toHours()>=8)sessions.add(mutableListOf(d))else sessions.last().add(d)}
     SectionCard("Sessions","Écart de 8 h · calcul local") { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)};StatRow(rows.first().startedAt.take(10),"${fmt(std,2)} std · ${rows.sumOf{it.quantity}} consommation${if(rows.sumOf{it.quantity}>1)"s"else""}") } }
 }
+
+@Composable private fun WeekdayChart(days:List<LocalStatDay>){val labels=listOf("Lun","Mar","Mer","Jeu","Ven","Sam","Dim");val values=(1..7).map{w->days.filter{it.date.dayOfWeek.value==w}.sumOf{it.grams}}
+    SectionCard("Grammes par jour de semaine","Somme cumulée sur la période"){BarChart(values,values.map{Pine},labels=labels,unit=" g")}}
+
+@Composable private fun HourChart(drinks:List<DrinkEntity>){val values=(0..23).map{hour->drinks.filter{runCatching{parseDrinkTime(it.startedAt).hour==hour}.getOrDefault(false)}.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}};val groups=drinks.groupBy{it.startedAt.take(10)}
+    fun decimal(t:OffsetDateTime)=t.hour+t.minute/60.0
+    val first=groups.values.mapNotNull{rows->rows.mapNotNull{runCatching{parseDrinkTime(it.startedAt)}.getOrNull()}.minOrNull()?.let(::decimal)}.averageOrNull()
+    val last=groups.values.mapNotNull{rows->rows.mapNotNull{d->runCatching{parseDrinkTime(d.startedAt).plusMinutes(d.durationMinutes.toLong())}.getOrNull()}.maxOrNull()?.let(::decimal)}.averageOrNull()
+    fun clock(v:Double?)=v?.let{val mins=(it*60).roundToInt().mod(24*60);"${(mins/60).toString().padStart(2,'0')}:${(mins%60).toString().padStart(2,'0')}"}?:"—"
+    SectionCard("Par heure de début","Hauteur = grammes d’alcool pur · axe horizontal = heure"){BarChart(values,values.map{if(it>0)Pine else Mint},labels=(0..23).map{"${it.toString().padStart(2,'0')} h"},unit=" g");StatRow("Première consommation habituelle",clock(first));StatRow("Dernière consommation habituelle",clock(last))}}
+
+@Composable private fun DistributionChart(days:List<LocalStatDay>){val observed=days.filter{it.observed};val labels=listOf("0","≤ 1","1–2","2–4","> 4");val values=listOf(observed.count{it.sober},observed.count{it.standards in .000001..1.0},observed.count{it.standards>1&&it.standards<=2},observed.count{it.standards>2&&it.standards<=4},observed.count{it.standards>4}).map{it.toDouble()}
+    SectionCard("Répartition des journées","Nombre de jours par intensité"){BarChart(values,listOf(Mint,Pine.copy(alpha=.35f),Pine.copy(alpha=.55f),Amber,Color(0xFFD9534F)),labels=labels,unit=" j")}}
+
+@Composable private fun FirstDrinkChart(days:List<LocalStatDay>){val rows=days.mapNotNull{day->day.drinks.minByOrNull{it.startedAt}?.let{d->runCatching{parseDrinkTime(d.startedAt).let{day.date.toString() to (it.hour+it.minute/60.0)}}.getOrNull()}}
+    SectionCard("Heure de première consommation","Journées avec consommation"){BarChart(rows.map{it.second},rows.map{Pine},labels=rows.map{it.first},unit=" h")}}
+
+@Composable private fun DayToDayChart(days:List<LocalStatDay>){val changes=days.mapIndexed{i,d->if(i==0||!d.observed||!days[i-1].observed)null else d.standards-days[i-1].standards}
+    SectionCard("Consommation d’un jour à l’autre","Variation en standards"){LineChart(changes,color=Pine,labels=days.map{it.date.toString()},unit=" std")}}
+
+private fun List<Double>.averageOrNull()=if(isEmpty())null else average()
+private fun quantile(sorted:List<Double>,q:Double):Double?{if(sorted.isEmpty())return null;val p=(sorted.size-1)*q;val lo=p.toInt();val hi=kotlin.math.ceil(p).toInt();return if(lo==hi)sorted[lo]else sorted[lo]+(sorted[hi]-sorted[lo])*(p-lo)}
+
+@Composable private fun DistributionSummary(days:List<LocalStatDay>){var metric by remember{mutableStateOf("standards")};val values=days.map{if(metric=="grams")it.grams else it.standards}.sorted();val mean=values.averageOrNull();val sd=mean?.let{m->kotlin.math.sqrt(values.sumOf{(it-m)*(it-m)}/values.size.coerceAtLeast(1))};val unit=if(metric=="grams")" g"else" standards"
+    SectionCard("Distribution complète","Par journée observée · 1 consommation standard canadienne = 13,45 g d’alcool pur."){
+        Row{listOf("standards" to "Standards","grams" to "Grammes").forEach{(v,l)->FilterChip(metric==v,{metric=v},{Text(l)},Modifier.padding(end=6.dp))}}
+        StatRow("Moyenne",fmt(mean,2)+unit);StatRow("Médiane",fmt(quantile(values,.5),2)+unit);StatRow("Quartile 1",fmt(quantile(values,.25),2)+unit);StatRow("Quartile 3",fmt(quantile(values,.75),2)+unit);StatRow("P90",fmt(quantile(values,.9),2)+unit);StatRow("Écart-type",fmt(sd,2)+unit);StatRow("Coeff. variation",if(mean==null||mean==0.0)"—"else fmt(sd!!/mean,2));StatRow("Minimum",fmt(values.minOrNull(),2)+unit);StatRow("Maximum",fmt(values.maxOrNull(),2)+unit)
+    }}
+
+@Composable private fun LocalHealthSection(rows:List<HealthAggregateEntity>,start:LocalDate,end:LocalDate){val filtered=rows.filter{it.localDate>=start.toString()&&it.localDate<=end.toString()};val types=filtered.map{it.recordType}.distinct();if(types.isEmpty()){SectionCard("Données de santé"){Text("Aucune donnée Health Connect locale pour cette période.",color=Pine.copy(alpha=.7f))};return};var metric by remember(types){mutableStateOf(types.first())};val selected=filtered.filter{it.recordType==metric}.groupBy{it.localDate}.toSortedMap();val values=selected.mapValues{(_,rs)->rs.mapNotNull{runCatching{JSONObject(it.payload).optDouble("value")}.getOrNull()}.averageOrNull()};val unit=filtered.firstOrNull{it.recordType==metric}?.let{runCatching{JSONObject(it.payload).optString("unit")}.getOrDefault("")}?:""
+    SectionCard("Données de santé","Données locales Health Connect"){
+        Row(Modifier.horizontalScroll(rememberScrollState())){types.forEach{t->FilterChip(metric==t,{metric=t},{Text(HEALTH_LABELS[t]?:t)},Modifier.padding(end=6.dp))}}
+        Spacer(Modifier.height(8.dp));LineChart(values.values.toList(),color=Amber,labels=values.keys.toList(),unit=if(unit.isBlank())""else" $unit");StatRow("Moyenne",fmt(values.values.filterNotNull().averageOrNull(),1)+(if(unit.isBlank())""else" $unit"));StatRow("Jours avec donnée",values.size.toString())
+    }}
 
 private val STAT_DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)
 
@@ -308,7 +353,7 @@ private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onP
     var draftStart by remember(start) { mutableStateOf(start) };var draftEnd by remember(end) { mutableStateOf(end) }
     Column(Modifier.padding(horizontal=20.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState())) {
-            listOf(30 to "30 j",90 to "90 j",180 to "180 j",365 to "1 an").forEach { (days,label) ->
+            listOf(7 to "7 j",30 to "30 j",90 to "90 j",180 to "180 j",365 to "1 an").forEach { (days,label) ->
                 FilterChip(selected=!custom && start==LocalDate.now().minusDays(days-1L) && end==LocalDate.now(),onClick={onPreset(days)},label={Text(label)},modifier=Modifier.padding(end=6.dp))
             }
             FilterChip(selected=custom,onClick={draftStart=start;draftEnd=end;dialog="start"},label={Text("Personnalisée")})

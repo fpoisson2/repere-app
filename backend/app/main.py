@@ -161,7 +161,7 @@ def wear_state(now:str|None=None,u:User=Depends(wear_user),db:Session=Depends(ge
     recent=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.started_at>=datetime.now()-timedelta(hours=36))).all()
     projection=bac_projection(recent,u)
     return {"active":wear_drink_out(active) if active else None,"today_standard_drinks":round(float(today_standard or 0.0),1),
-      "bac_g_per_l":round(projection["current_bac_percent"]*100,3),"bac_trend":projection["trend"],
+      "bac_g_per_l":round(projection["current_bac_percent"]*10,3),"bac_trend":projection["trend"],
       "bac_zero_at":projection["estimated_zero_at"],"server_time":datetime.now()}
 
 @app.post("/api/wear/start",status_code=201)
@@ -248,16 +248,17 @@ def pull_sync(cursor:int=Query(0,ge=0),limit:int=Query(500,ge=1,le=2000),u:User=
     """Returns a full first snapshot, then ordered changes after an opaque cursor."""
     bac_profile={"sex":u.sex,"height_cm":u.height_cm,"weight_kg":u.weight_kg,
       "distribution_ratio":body_r(u),"elimination_rate":u.elimination_rate}
+    tracked_days=[{"day":row.day,"sober":row.sober} for row in db.scalars(select(TrackedDay).where(TrackedDay.user_id==u.id)).all()]
     high_water=db.scalar(select(func.max(SyncEvent.id)).where(SyncEvent.user_id==u.id)) or 0
     if cursor==0:
         drinks=db.scalars(select(Drink).where(Drink.user_id==u.id).order_by(Drink.id)).all()
         changes=[{"cursor":high_water,"entity_type":"drink","entity_id":d.id,"operation":"upsert","payload":sync_drink_out(d)} for d in drinks]
-        return {"cursor":high_water,"has_more":False,"changes":changes,"snapshot":True,"bac_profile":bac_profile}
+        return {"cursor":high_water,"has_more":False,"changes":changes,"snapshot":True,"bac_profile":bac_profile,"tracked_days":tracked_days}
     events=db.scalars(select(SyncEvent).where(SyncEvent.user_id==u.id,SyncEvent.id>cursor).order_by(SyncEvent.id).limit(limit+1)).all()
     page=events[:limit]
     return {"cursor":page[-1].id if page else cursor,"has_more":len(events)>limit,"changes":[
       {"cursor":x.id,"entity_type":x.entity_type,"entity_id":x.entity_id,"operation":x.operation,"payload":x.payload}
-      for x in page],"snapshot":False,"bac_profile":bac_profile}
+      for x in page],"snapshot":False,"bac_profile":bac_profile,"tracked_days":tracked_days}
 
 @app.post("/api/sync")
 def push_sync(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db)):
@@ -740,9 +741,10 @@ def automatic_sessions(payload:dict,u:User=Depends(current_user),db:Session=Depe
     db.commit();return {"reset":len(rows)}
 
 @app.get("/api/bac")
-def bac(u:User=Depends(current_user),db:Session=Depends(get_db)):
-    since=datetime.now()-timedelta(hours=36); ds=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.started_at>=since)).all()
-    return bac_projection(ds,u)
+def bac(now:datetime|None=None,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    now=(now.replace(tzinfo=None) if now and now.tzinfo else now) or datetime.now();since=now-timedelta(hours=36)
+    ds=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.started_at>=since,Drink.started_at<=now)).all()
+    return bac_projection(ds,u,now)
 
 @app.get("/api/bac/day")
 def bac_day(day:date,u:User=Depends(current_user),db:Session=Depends(get_db)):

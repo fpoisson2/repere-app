@@ -11,11 +11,16 @@ class BacMathTest {
         val drinks=listOf(BacDrink(start,30,13.45));val profile=BacProfile(75.0,.6,.015)
         val early=bacAt(drinks,profile,start.plusMinutes(15));val peak=peakBac(drinks,profile)!!
         val late=bacAt(drinks,profile,start.plusHours(24))
-        assertTrue(peak>early);assertEquals(0.0,late,0.000001)
+        assertTrue(peak>early);assertEquals(.299,peak*10,.01);assertEquals(0.0,late,0.000001)
     }
 
     @Test fun watsonRatioMatchesBounds() {
         assertTrue(distributionRatio("male",180.0,80.0) in .4..0.9)
         assertEquals(.55,distributionRatio("female",null,70.0),.0001)
+    }
+
+    @Test fun parsesServerLocalAndOfflineOffsetTimes() {
+        assertEquals(13,parseDrinkTime("2026-08-27T13:43:00").hour)
+        assertEquals(13,parseDrinkTime("2026-08-27T13:43:00-04:00").hour)
     }
 }
