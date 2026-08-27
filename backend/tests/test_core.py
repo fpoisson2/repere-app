@@ -136,6 +136,13 @@ def test_explicit_sober_day_is_distinct_from_missing_day(client):
     row=client.get("/api/days?start=2026-08-20&end=2026-08-20").json()[0]
     assert row["status"]=="no_data" and row["observed"] is False
 
+def test_stats_accepts_custom_date_range(client):
+    client.patch("/api/settings",json={"tracking_start_date":"2026-08-01"})
+    data=client.get("/api/stats?start=2026-08-10&end=2026-08-14").json()
+    assert data["range"]=={"start":"2026-08-10","end":"2026-08-14"}
+    assert len(data["days"])==5
+    assert client.get("/api/stats?start=2026-08-15&end=2026-08-14").status_code==422
+
 def test_cannot_mark_day_with_drink_as_sober(client):
     client.patch("/api/settings",json={"tracking_start_date":"2026-08-20","day_start_hour":8})
     client.post("/api/drinks",json={"drink_name":"Test","volume_ml":100,"abv_percent":10,"started_at":"2026-08-20T12:00:00","duration_minutes":30})
@@ -302,3 +309,19 @@ def test_body_metrics_drive_distribution_ratio(client):
     assert me["sex"] == "female" and me["height_cm"] == 165
     male = client.patch("/api/settings", json={"sex": "male", "height_cm": 180, "weight_kg": 85}).json()
     assert male["distribution_ratio"] > patched["distribution_ratio"]
+
+
+def test_preset_crud(client):
+    created = client.post("/api/presets", json={"name": "Cidre 500", "drink_type": "cidre", "volume_ml": 500, "abv_percent": 4.5}).json()
+    assert created["id"] and created["volume_ml"] == 500
+    names = [p["name"] for p in client.get("/api/presets").json()]
+    assert "Cidre 500" in names
+    edited = client.patch(f"/api/presets/{created['id']}", json={"volume_ml": 473}).json()
+    assert edited["volume_ml"] == 473 and edited["name"] == "Cidre 500"
+    # a global (shared) preset can be edited on a self-hosted instance
+    shared = next(p for p in client.get("/api/presets").json() if p.get("user_id") is None)
+    renamed = client.patch(f"/api/presets/{shared['id']}", json={"name": "Renomme", "volume_ml": 250}).json()
+    assert renamed["name"] == "Renomme" and renamed["volume_ml"] == 250
+    assert client.delete(f"/api/presets/{created['id']}").status_code == 204
+    assert all(p["id"] != created["id"] for p in client.get("/api/presets").json())
+    assert client.post("/api/presets", json={"name": "", "volume_ml": 100, "abv_percent": 5}).status_code == 422

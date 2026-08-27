@@ -24,6 +24,10 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -55,7 +59,7 @@ private fun <T> RemoteScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { if (armed && !refreshing) tick++ else armed = true }
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { tick++ }, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            PageHeaderLite(eyebrow, title)
+            if (title.isNotBlank()) PageHeaderLite(eyebrow, title)
             when {
                 data != null -> content(data!!)
                 error != null -> Text(
@@ -224,29 +228,23 @@ private val HEALTH_LABELS = mapOf(
 
 @Composable
 fun StatsScreen(context: Context) {
-    RemoteScreen(context, "Analyse", "Stats", { ctx ->
-        val stats = Net.json(ctx, "/api/stats?days=30")
+    var start by remember { mutableStateOf(LocalDate.now().minusDays(89)) }
+    var end by remember { mutableStateOf(LocalDate.now()) }
+    var custom by remember { mutableStateOf(false) }
+    val query = "start=$start&end=$end"
+    Column(Modifier.fillMaxSize()) {
+        PageHeaderLite("Analyse", "Stats")
+        StatsPeriodSelector(start, end, custom, onPreset = { days -> start=LocalDate.now().minusDays(days-1L);end=LocalDate.now();custom=false }, onCustom = { a,b -> start=a;end=b;custom=true })
+        key(query) { RemoteScreen(context, "", "", { ctx ->
+        val stats = Net.json(ctx, "/api/stats?$query")
         val trends = runCatching { Net.json(ctx, "/api/stats/trends") }.getOrNull()
-        val health = runCatching { Net.json(ctx, "/api/stats/health?days=90") }.getOrNull()
+        val health = runCatching { Net.json(ctx, "/api/stats/health?$query") }.getOrNull()
         Triple(stats, trends, health)
     }) { (stats, trends, health) ->
         val period = stats.optJSONObject("period") ?: JSONObject()
         val grams = period.optJSONObject("grams") ?: JSONObject()
         val standards = period.optJSONObject("standards") ?: JSONObject()
-        val days = stats.optJSONArray("days") ?: JSONArray()
-        val dayStd = ArrayList<Double>(); val dayColors = ArrayList<Color>()
-        for (i in 0 until days.length()) {
-            val d = days.optJSONObject(i) ?: continue
-            dayStd.add(d.optDouble("standards", 0.0))
-            dayColors.add(if (d.optString("status") == "sober") Mint else if (d.optDouble("standards", 0.0) >= 3) Amber else Pine)
-        }
-        val firstDay = (days.optJSONObject(0)?.optString("date") ?: "").takeLast(5)
-        val lastDay = (days.optJSONObject(days.length() - 1)?.optString("date") ?: "").takeLast(5)
-        SectionCard("30 derniers jours", "Consommations standard par jour · ligne rouge = 3 std") {
-            ChartFrame("max ${fmt((dayStd.maxOrNull() ?: 0.0), 1)}", firstDay, lastDay) {
-                BarChart(dayStd, dayColors, threshold = 3.0)
-            }
-            Spacer(Modifier.height(12.dp))
+        SectionCard("Période observée", "Du ${start.format(STAT_DATE)} au ${end.format(STAT_DATE)}") {
             StatRow("Jours observés", period.optInt("days_observed").toString())
             StatRow("Jours sans alcool", "${period.optInt("alcohol_free_days")} (${fmt(period.numOrNull("alcohol_free_percent"), 0)} %)")
             StatRow("Total standards", fmt(period.numOrNull("total_standards")))
@@ -254,29 +252,54 @@ fun StatsScreen(context: Context) {
             StatRow("Médiane / jour", "${fmt(standards.numOrNull("median"), 2)} std")
             StatRow("Maximum", "${fmt(standards.numOrNull("max"), 2)} std · ${fmt(grams.numOrNull("max"), 0)} g")
         }
-        if (trends != null) TrendSection(trends)
+        if (trends != null) TrendSection(trends, start, end)
         if (health != null) HealthSection(health)
+    } }
+    }
+}
+
+private val STAT_DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onPreset:(Int)->Unit,onCustom:(LocalDate,LocalDate)->Unit) {
+    var dialog by remember { mutableStateOf<String?>(null) }
+    var draftStart by remember(start) { mutableStateOf(start) };var draftEnd by remember(end) { mutableStateOf(end) }
+    Column(Modifier.padding(horizontal=20.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState())) {
+            listOf(30 to "30 j",90 to "90 j",180 to "180 j",365 to "1 an").forEach { (days,label) ->
+                FilterChip(selected=!custom && start==LocalDate.now().minusDays(days-1L) && end==LocalDate.now(),onClick={onPreset(days)},label={Text(label)},modifier=Modifier.padding(end=6.dp))
+            }
+            FilterChip(selected=custom,onClick={draftStart=start;draftEnd=end;dialog="start"},label={Text("Personnalisée")})
+        }
+        Text("${start.format(STAT_DATE)} — ${end.format(STAT_DATE)}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f),modifier=Modifier.padding(top=4.dp,bottom=4.dp))
+    }
+    dialog?.let { target ->
+        val initial=if(target=="start")draftStart else draftEnd
+        val state=rememberDatePickerState(initialSelectedDateMillis=initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),selectableDates=object:SelectableDates{override fun isSelectableDate(utcTimeMillis:Long)=utcTimeMillis<=System.currentTimeMillis()})
+        DatePickerDialog(onDismissRequest={dialog=null},confirmButton={TextButton(onClick={
+            val picked=state.selectedDateMillis?.let{Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()}?:initial
+            if(target=="start"){draftStart=picked;dialog="end"}else{draftEnd=picked;if(draftStart<=picked)onCustom(draftStart,picked);dialog=null}
+        }){Text(if(target=="start")"Suivant":"Appliquer")}},dismissButton={TextButton(onClick={dialog=null}){Text("Annuler")}}){DatePicker(state)}
     }
 }
 
 @Composable
-private fun TrendSection(trends: JSONObject) {
+private fun TrendSection(trends: JSONObject, start:LocalDate, end:LocalDate) {
+    var metric by remember { mutableStateOf("standards") }
     val moving = trends.optJSONObject("moving_averages") ?: JSONObject()
     fun series(window: String, field: String): List<Double?> {
         val arr = moving.optJSONArray(window) ?: JSONArray()
-        return (0 until arr.length()).map { arr.optJSONObject(it)?.let { r -> if (r.isNull(field)) null else r.optDouble(field) } }
+        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("date") in start.toString()..end.toString() }.map { r -> if (r.isNull(field)) null else r.optDouble(field) }
     }
-    val window = "90"
-    val daily = series(window, "daily_standards").map { it ?: 0.0 }.takeLast(90)
-    val ma7 = series(window, "standards").takeLast(90)
-    val ma30 = series("30", "standards").takeLast(90)
-    val sevenArr = moving.optJSONArray(window) ?: JSONArray()
-    val firstD = (sevenArr.optJSONObject(maxOf(0, sevenArr.length() - 90))?.optString("date") ?: "").takeLast(5)
-    val lastD = (sevenArr.optJSONObject(sevenArr.length() - 1)?.optString("date") ?: "").takeLast(5)
+    val daily = series("7", "daily_$metric").map { it ?: 0.0 }
+    val ma7 = series("7", metric);val ma30 = series("30", metric);val ma90 = series("90", metric)
+    val unit=if(metric=="grams")"g / jour" else "standards / jour"
     val weekly = trends.optJSONArray("weekly") ?: JSONArray()
-    SectionCard("Tendance", "Barres = jour · vert = moyenne 7 j · ambre = moyenne 30 j") {
-        ChartFrame("standards / jour", firstD, lastD) {
-            ComboChart(daily, listOf(Pine to ma7, Amber to ma30), threshold = 3.0)
+    SectionCard("Moyennes mobiles", "Barres = jour · vert = 7 j · ambre = 30 j · gris = 90 j") {
+        Row { listOf("standards" to "Standards","grams" to "Grammes").forEach { (value,label) -> FilterChip(selected=metric==value,onClick={metric=value},label={Text(label)},modifier=Modifier.padding(end=6.dp)) } }
+        ChartFrame(unit, start.toString().takeLast(5), end.toString().takeLast(5)) {
+            ComboChart(daily, listOf(Pine to ma7, Amber to ma30, Pine.copy(alpha=.4f) to ma90), threshold = if(metric=="standards")3.0 else null)
         }
         Spacer(Modifier.height(12.dp))
         val lastWeeks = (maxOf(0, weekly.length() - 6) until weekly.length()).map { weekly.optJSONObject(it) }

@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -163,7 +164,9 @@ private fun PageHeader(eyebrow:String,title:String,trailing:(@Composable () -> U
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val PRESET_NEW = PresetEntity(0L, "", "autre", 333.0, 5.0)
+
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MaintenantScreen(
     context:Context,
@@ -179,10 +182,12 @@ private fun MaintenantScreen(
     var editing by remember { mutableStateOf<DrinkEntity?>(null) }
     var creatingFrom by remember { mutableStateOf<PresetEntity?>(null) }
     var creatingBlank by remember { mutableStateOf(false) }
+    var editingPreset by remember { mutableStateOf<PresetEntity?>(null) }
     var checkIn by remember { mutableStateOf(false) }
     var dayMessage by remember { mutableStateOf<String?>(null) }
     var soberSuccess by remember { mutableStateOf(false) }
     var dayStatus by remember { mutableStateOf<String?>(null) }
+    var checkInRefresh by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val refreshing = status.startsWith("Synchronisation")
     LaunchedEffect(dayKey) { dayMessage = null }
@@ -220,16 +225,26 @@ private fun MaintenantScreen(
                     }
                 }
             }
-            if (isToday) BacCard(context)
-            LastCheckInCard(context)
+            if (isToday) BacCard(context) else if(dayDrinks.isNotEmpty()) HistoricalBacCard(context,day)
+            LastCheckInCard(context, day, checkInRefresh)
             OutlinedButton(onClick = { checkIn = true }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()) {
                 Icon(Icons.AutoMirrored.Filled.Assignment, null); Spacer(Modifier.width(8.dp)); Text("Faire un check-in")
             }
-            Text("Ajouter rapidement", Modifier.padding(start = 20.dp, top = 8.dp, bottom = 10.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Ajouter rapidement", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                TextButton(onClick = { editingPreset = PRESET_NEW }) { Text("Nouveau favori") }
+            }
+            Text("Appui long sur un favori pour le modifier.", Modifier.padding(start = 20.dp, bottom = 8.dp), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .55f))
             if (presets.isEmpty()) Text("Connecte-toi une première fois pour télécharger tes favoris.", Modifier.padding(horizontal = 20.dp), color = Pine.copy(alpha = .65f))
             else LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(presets) { preset ->
-                    ElevatedCard(onClick = { creatingFrom = preset }, modifier = Modifier.width(160.dp), shape = RoundedCornerShape(20.dp)) {
+                    ElevatedCard(
+                        modifier = Modifier.width(160.dp).combinedClickable(
+                            onClick = { creatingFrom = preset },
+                            onLongClick = { if (preset.serverId > 0) editingPreset = preset },
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                    ) {
                         Column(Modifier.padding(16.dp)) {
                             Text("＋", color = Pine, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Light)
                             Spacer(Modifier.height(12.dp))
@@ -274,11 +289,16 @@ private fun MaintenantScreen(
         }
     }
     val prefill = creatingFrom
+    editingPreset?.let { p -> PresetEditorDialog(context, p, onDismiss = { editingPreset = null }) { editingPreset = null; onSync() } }
     if (creatingBlank) DrinkEditorDialog(day, null, onDismiss = { creatingBlank = false }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingBlank = false }
     if (prefill != null) DrinkEditorDialog(day, null, prefillName = prefill.name, prefillVolume = prefill.volumeMl.toInt(), prefillAbv = prefill.abvPercent, onDismiss = { creatingFrom = null }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingFrom = null }
     editing?.let { d -> DrinkEditorDialog(day, d, onDismiss = { editing = null }) { n, v, a, q, started, dur -> onEdit(d.clientId, n, v, a, q, started, dur); editing = null } }
     if (checkIn) CheckInDialog(day, onDismiss = { checkIn = false }) { payload ->
-        scope.launch { runCatching { Net.send(context, "/api/check-ins", payload) }.onFailure { dayMessage = it.message ?: "Check-in non envoyé" }.onSuccess { dayMessage = "Check-in enregistré" } }
+        scope.launch {
+            runCatching { Net.send(context, "/api/check-ins", payload) }
+                .onFailure { dayMessage = it.message ?: "Check-in non envoyé" }
+                .onSuccess { dayMessage = "Check-in enregistré"; checkInRefresh++ }
+        }
         checkIn = false
     }
     if (soberSuccess) AlertDialog(
@@ -304,9 +324,11 @@ private fun DrinkEditorDialog(
     var abv by remember{mutableStateOf((existing?.abvPercent ?: prefillAbv).toString())}
     var quantity by remember{mutableStateOf((existing?.quantity ?: 1).toString())}
     var duration by remember{mutableStateOf((existing?.durationMinutes ?: 30).toString())}
-    val initialTime = remember { runCatching { OffsetDateTime.parse(existing?.startedAt).toLocalTime() }.getOrDefault(java.time.LocalTime.now().withSecond(0).withNano(0)) }
-    var time by remember { mutableStateOf(initialTime) }
+    val parsed = remember { runCatching { OffsetDateTime.parse(existing?.startedAt) }.getOrNull() }
+    var time by remember { mutableStateOf(parsed?.toLocalTime() ?: java.time.LocalTime.now().withSecond(0).withNano(0)) }
+    var date by remember { mutableStateOf(parsed?.toLocalDate() ?: day) }
     var pickTime by remember { mutableStateOf(false) }
+    var pickDate by remember { mutableStateOf(false) }
     val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
     AlertDialog(onDismissRequest=onDismiss,title={Text(if(existing==null)"Nouvelle consommation" else "Modifier la consommation")},text={
         Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
@@ -314,17 +336,76 @@ private fun DrinkEditorDialog(
             OutlinedTextField(volume,{volume=it.filter(Char::isDigit)},label={Text("Volume (ml)")},singleLine=true,keyboardOptions=numeric)
             OutlinedTextField(abv,{abv=it.filter{c->c.isDigit()||c=='.'||c==','}},label={Text("Alcool (%)")},singleLine=true,keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal))
             OutlinedTextField(quantity,{quantity=it.filter(Char::isDigit)},label={Text("Quantité")},singleLine=true,keyboardOptions=numeric)
+            OutlinedTextField(date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)),{},readOnly=true,label={Text("Date")},modifier=Modifier.fillMaxWidth(),trailingIcon={TextButton(onClick={pickDate=true}){Text("Choisir")}})
             OutlinedTextField(time.format(DateTimeFormatter.ofPattern("HH:mm")),{},readOnly=true,label={Text("Heure de début")},modifier=Modifier.fillMaxWidth(),trailingIcon={TextButton(onClick={pickTime=true}){Text("Choisir")}})
             OutlinedTextField(duration,{duration=it.filter(Char::isDigit)},label={Text("Durée (minutes)")},singleLine=true,keyboardOptions=numeric)
         }
     },confirmButton={TextButton(onClick={
-        val started=day.atTime(time).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
+        val started=date.atTime(time).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
         onSave(name,volume.toDoubleOrNull()?:333.0,abv.replace(',','.').toDoubleOrNull()?:5.0,quantity.toIntOrNull()?.coerceAtLeast(1)?:1,started,duration.toIntOrNull()?.coerceAtLeast(0)?:30)
     }){Text(if(existing==null)"Ajouter" else "Enregistrer")}},dismissButton={TextButton(onClick=onDismiss){Text("Annuler")}})
     if (pickTime) {
         val state = rememberTimePickerState(initialHour = time.hour, initialMinute = time.minute, is24Hour = true)
         AlertDialog(onDismissRequest={pickTime=false},confirmButton={TextButton(onClick={time=java.time.LocalTime.of(state.hour,state.minute);pickTime=false}){Text("OK")}},dismissButton={TextButton(onClick={pickTime=false}){Text("Annuler")}},text={TimePicker(state=state)})
     }
+    if (pickDate) {
+        val state = rememberDatePickerState(
+            initialSelectedDateMillis = date.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli(),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= System.currentTimeMillis() + 86_400_000
+            },
+        )
+        DatePickerDialog(onDismissRequest={pickDate=false},confirmButton={TextButton(onClick={
+            state.selectedDateMillis?.let { date = java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate() }
+            pickDate=false
+        }){Text("OK")}},dismissButton={TextButton(onClick={pickDate=false}){Text("Annuler")}}){ DatePicker(state=state) }
+    }
+}
+
+@Composable
+private fun PresetEditorDialog(context:Context, preset:PresetEntity, onDismiss:()->Unit, onSaved:()->Unit) {
+    val isNew = preset.serverId <= 0L
+    var name by remember { mutableStateOf(preset.name) }
+    var type by remember { mutableStateOf(preset.type) }
+    var volume by remember { mutableStateOf(if (isNew) "333" else preset.volumeMl.toInt().toString()) }
+    var abv by remember { mutableStateOf(if (isNew) "5" else preset.abvPercent.toString()) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isNew) "Nouveau favori" else "Modifier le favori") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Nom") }, singleLine = true)
+                OutlinedTextField(type, { type = it }, label = { Text("Type (bière, vin…)") }, singleLine = true)
+                OutlinedTextField(volume, { volume = it.filter(Char::isDigit) }, label = { Text("Volume (ml)") }, singleLine = true, keyboardOptions = numeric)
+                OutlinedTextField(abv, { abv = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, label = { Text("Alcool (%)") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+                message?.let { Text(it, color = Color(0xFFD9534F), style = MaterialTheme.typography.bodySmall) }
+                if (!isNew) TextButton(onClick = {
+                    scope.launch {
+                        busy = true
+                        runCatching { Net.send(context, "/api/presets/${preset.serverId}", JSONObject(), "DELETE") }
+                            .onSuccess { onSaved() }.onFailure { message = it.message ?: "Suppression impossible"; busy = false }
+                    }
+                }) { Text("Supprimer ce favori", color = Color(0xFFD9534F)) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                scope.launch {
+                    busy = true
+                    val body = JSONObject().put("name", name.trim()).put("drink_type", type.trim().ifBlank { "autre" })
+                        .put("volume_ml", volume.toDoubleOrNull() ?: 0.0).put("abv_percent", abv.replace(',', '.').toDoubleOrNull() ?: 0.0)
+                    val path = if (isNew) "/api/presets" else "/api/presets/${preset.serverId}"
+                    runCatching { Net.send(context, path, body, if (isNew) "POST" else "PATCH") }
+                        .onSuccess { onSaved() }.onFailure { message = it.message ?: "Enregistrement impossible"; busy = false }
+                }
+            }) { Text("Enregistrer") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -405,16 +486,48 @@ private fun BacCard(context:Context) {
 }
 
 @Composable
-private fun LastCheckInCard(context:Context) {
-    var last by remember { mutableStateOf<JSONObject?>(null) }
+private fun HistoricalBacCard(context:Context,day:LocalDate) {
+    var data by remember(day) { mutableStateOf<JSONObject?>(null) }
+    var loaded by remember(day) { mutableStateOf(false) }
+    LaunchedEffect(day) { data=runCatching{Net.json(context,"/api/bac/day?day=$day")}.getOrNull();loaded=true }
+    Card(Modifier.padding(horizontal=20.dp,vertical=10.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White),shape=RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(20.dp)) {
+            Text("Alcoolémie maximale estimée",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+            when { data!=null -> {
+                val peak=data!!.optJSONObject("peak")?.optDouble("bac_percent",0.0)?.times(100)?:0.0
+                Text(String.format(Locale.CANADA_FRENCH,"%.2f g/L",peak),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,color=Pine)
+            };!loaded -> Text("Calcul…",color=Pine.copy(alpha=.6f));else -> Text("Estimation indisponible",color=Pine.copy(alpha=.65f)) }
+            Text("Estimation mathématique, jamais une autorisation de conduire.",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.62f))
+        }
+    }
+}
+
+@Composable
+private fun LastCheckInCard(context:Context, day:LocalDate, refreshKey:Int) {
+    val dayKey = day.toString()
+    val isToday = day == LocalDate.now()
+    var checkIn by remember { mutableStateOf<JSONObject?>(null) }
+    var loaded by remember { mutableStateOf(false) }
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(tick) { runCatching { Net.array(context, "/api/check-ins") }.onSuccess { if (it.length() > 0) last = it.getJSONObject(0) } }
+    LaunchedEffect(dayKey, refreshKey, tick) {
+        checkIn = runCatching { Net.array(context, "/api/check-ins?start=$dayKey&end=$dayKey") }.getOrNull()
+            ?.let { if (it.length() > 0) it.getJSONObject(0) else null }
+        loaded = true
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
-    val c = last ?: return
+    val c = checkIn
+    if (c == null) {
+        if (loaded && isToday) Text(
+            "Aucun check-in aujourd’hui.",
+            Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .55f),
+        )
+        return
+    }
     val standards = if (c.isNull("planned_grams")) null else c.optDouble("planned_grams") / 13.45
     Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Mint), shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
-            Text("DERNIER CHECK-IN", style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .65f), fontWeight = FontWeight.Bold)
+            Text(if (isToday) "CHECK-IN DU JOUR" else "CHECK-IN DE CETTE JOURNÉE", style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .65f), fontWeight = FontWeight.Bold)
             Text(
                 runCatching { OffsetDateTime.parse(c.optString("observed_at_utc")).atZoneSameInstant(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM · HH:mm", Locale.CANADA_FRENCH)) }.getOrDefault(c.optString("local_date")),
                 fontWeight = FontWeight.Bold, color = Pine,

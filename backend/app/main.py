@@ -329,7 +329,32 @@ def export_selected(ids:str,u:User=Depends(current_user),db:Session=Depends(get_
 
 @app.get("/api/presets")
 def presets(u:User=Depends(current_user),db:Session=Depends(get_db)):
-    return db.scalars(select(Preset).where((Preset.user_id==u.id)|(Preset.user_id.is_(None)))).all()
+    return db.scalars(select(Preset).where((Preset.user_id==u.id)|(Preset.user_id.is_(None))).order_by(Preset.id)).all()
+
+def _preset_payload(data:dict)->dict:
+    name=str(data.get("name") or "").strip()
+    if not name:raise HTTPException(422,"Nom requis")
+    volume=float(data.get("volume_ml") or 0);abv=float(data.get("abv_percent") if data.get("abv_percent") is not None else -1)
+    if volume<=0 or volume>5000:raise HTTPException(422,"Volume invalide")
+    if not 0<=abv<=100:raise HTTPException(422,"Taux d'alcool invalide")
+    return {"name":name[:120],"drink_type":str(data.get("drink_type") or "autre")[:40],"volume_ml":volume,"abv_percent":abv}
+
+@app.post("/api/presets",status_code=201)
+def add_preset(data:dict,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    p=Preset(user_id=u.id,**_preset_payload(data));db.add(p);db.commit();db.refresh(p);return p
+
+@app.patch("/api/presets/{preset_id}")
+def edit_preset(preset_id:int,data:dict,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    p=db.get(Preset,preset_id)
+    if not p or p.user_id not in (None,u.id):raise HTTPException(404,"Preset introuvable")
+    for k,v in _preset_payload({**{"name":p.name,"drink_type":p.drink_type,"volume_ml":p.volume_ml,"abv_percent":p.abv_percent},**data}).items():setattr(p,k,v)
+    db.commit();db.refresh(p);return p
+
+@app.delete("/api/presets/{preset_id}",status_code=204)
+def remove_preset(preset_id:int,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    p=db.get(Preset,preset_id)
+    if not p or p.user_id not in (None,u.id):raise HTTPException(404,"Preset introuvable")
+    db.delete(p);db.commit()
 
 @app.post("/api/import")
 async def do_import(file:UploadFile=File(...),u:User=Depends(current_user),db:Session=Depends(get_db)):
@@ -391,8 +416,10 @@ def unmark_sober(day:date,u:User=Depends(current_user),db:Session=Depends(get_db
     if tracked:db.delete(tracked);db.commit()
 
 @app.get("/api/stats")
-def stats(days:int=30,u:User=Depends(current_user),db:Session=Depends(get_db)):
-    series=daily_series(db,u,date.today()-timedelta(days=days-1),date.today()); return {"tracking_start_date":u.tracking_start_date,"period":period_stats(series),"days":series}
+def stats(days:int=30,start:date|None=None,end:date|None=None,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    finish=end or date.today();begin=start or finish-timedelta(days=days-1)
+    if begin>finish:raise HTTPException(422,"La date de début doit précéder la date de fin")
+    series=daily_series(db,u,begin,finish); return {"tracking_start_date":u.tracking_start_date,"range":{"start":begin,"end":finish},"period":period_stats(series),"days":series}
 
 HEALTH_STAT_TYPES=("sleep","steps","exercise","resting_heart_rate","heart_rate","hrv_rmssd")
 HEALTH_CUMULATIVE={"sleep","steps","exercise"}
@@ -414,8 +441,9 @@ def health_daily(db:Session,u:User,start:date,end:date)->tuple[dict,dict]:
     return per_day,units
 
 @app.get("/api/stats/health")
-def stats_health(days:int=90,u:User=Depends(current_user),db:Session=Depends(get_db)):
-    start=date.today()-timedelta(days=days-1);end=date.today()
+def stats_health(days:int=90,start:date|None=None,end:date|None=None,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    end=end or date.today();start=start or end-timedelta(days=days-1)
+    if start>end:raise HTTPException(422,"La date de début doit précéder la date de fin")
     series=daily_series(db,u,start,end)
     per_day,units=health_daily(db,u,start,end)
     days_out=[{**row,"health":per_day.get(row["date"],{})} for row in series]

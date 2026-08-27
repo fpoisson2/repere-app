@@ -19,5 +19,10 @@
             <meta-data android:name="android.support.wearable.complications.SUPPORTED_TYPES" android:value="SHORT_TEXT,RANGED_VALUE,MONOCHROMATIC_IMAGE"/>
             <meta-data android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS" android:value="300"/>
         </service>
+        <service android:name=".RepereTileService" android:exported="true" android:icon="@drawable/ic_drink" android:label="Répère"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter><action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER"/></intent-filter>
+            <meta-data android:name="androidx.wear.tiles.PREVIEW" android:resource="@drawable/ic_drink"/>
+        </service>
     </application>
 </manifest>

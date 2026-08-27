@@ -3247,6 +3247,7 @@ function Prefs({
           </button>
         </div>
       </section>
+      <PresetManager refresh={refresh} />
       <section className="card full">
         <div className="eyebrow">Android et Wear OS</div>
         <h2>Associer un appareil</h2>
@@ -3471,6 +3472,149 @@ function PersonalInsights() {
     <section className="card full"><h2>Contrôle des données</h2><div className="actions"><a className="ghost buttonlink" href="/api/privacy/export">Exporter mes données d’analyse</a><button className="ghost" onClick={async()=>{if(confirm("Supprimer définitivement le compte et toutes ses données ? Cette action est irréversible.")){await api("/privacy/all-data",{method:"DELETE"});localStorage.clear();location.reload()}}}>Supprimer complètement mes données</button></div></section>
   </div>
 }
+function PresetManager({ refresh }: { refresh: () => Promise<void> }) {
+  const [list, setList] = useState<any[]>([]);
+  const [draft, setDraft] = useState<any>(null); // {id?, name, drink_type, volume_ml, abv_percent}
+  const [error, setError] = useState("");
+  const load = () => api("/presets").then(setList);
+  useEffect(() => {
+    load();
+  }, []);
+  const save = async () => {
+    setError("");
+    try {
+      const body = JSON.stringify({
+        name: draft.name,
+        drink_type: draft.drink_type || "autre",
+        volume_ml: +draft.volume_ml,
+        abv_percent: +draft.abv_percent,
+      });
+      await api(draft.id ? `/presets/${draft.id}` : "/presets", {
+        method: draft.id ? "PATCH" : "POST",
+        body,
+      });
+      setDraft(null);
+      await load();
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Enregistrement impossible");
+    }
+  };
+  const remove = async (id: number) => {
+    if (!window.confirm("Supprimer ce favori ?")) return;
+    await api(`/presets/${id}`, { method: "DELETE" });
+    await load();
+    await refresh();
+  };
+  return (
+    <section className="card full">
+      <div className="eyebrow">Saisie rapide</div>
+      <h2>Favoris</h2>
+      <p className="muted">
+        Les favoris sont partagés entre le web, Android et Wear OS.
+      </p>
+      <div className="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Volume</th>
+              <th>%</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((p) => (
+              <tr key={p.id}>
+                <td>{p.name}</td>
+                <td>{p.volume_ml} ml</td>
+                <td>{p.abv_percent}</td>
+                <td>
+                  <button
+                    className="iconbtn"
+                    onClick={() => setDraft({ ...p })}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button className="iconbtn" onClick={() => remove(p.id)}>
+                    <Trash2 size={15} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {draft ? (
+        <div className="form">
+          <label>
+            Nom
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            />
+          </label>
+          <label>
+            Type
+            <input
+              value={draft.drink_type || ""}
+              onChange={(e) =>
+                setDraft({ ...draft, drink_type: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            Volume (ml)
+            <input
+              type="number"
+              value={draft.volume_ml}
+              onChange={(e) =>
+                setDraft({ ...draft, volume_ml: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            Alcool (%)
+            <input
+              type="number"
+              step=".1"
+              value={draft.abv_percent}
+              onChange={(e) =>
+                setDraft({ ...draft, abv_percent: e.target.value })
+              }
+            />
+          </label>
+          {error && <p className="error">{error}</p>}
+          <div className="actions">
+            <button className="ghost" onClick={() => setDraft(null)}>
+              Annuler
+            </button>
+            <button className="add" onClick={save}>
+              Enregistrer
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="actions">
+          <button
+            className="add"
+            onClick={() =>
+              setDraft({
+                name: "",
+                drink_type: "",
+                volume_ml: 333,
+                abv_percent: 5,
+              })
+            }
+          >
+            <Plus size={17} /> Nouveau favori
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AddMenu({
   presets,
   close,
@@ -3511,7 +3655,7 @@ function AddMenu({
                 id: 0,
                 name: "Consommation",
                 drink_type: "",
-                volume_ml: 341,
+                volume_ml: 333,
                 abv_percent: 5,
               })
             }

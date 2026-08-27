@@ -12,7 +12,7 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "ca.repere.wear"
     compileSdk = 36
-    defaultConfig { applicationId = "ca.repere.app"; minSdk = 30; targetSdk = 35; versionCode = 35010013; versionName = "1.1.0" }
+    defaultConfig { applicationId = "ca.repere.app"; minSdk = 30; targetSdk = 35; versionCode = 35010014; versionName = "1.2.0" }
     buildFeatures { compose = true }
     signingConfigs {
         if (keystorePropertiesFile.exists()) create("release") {
@@ -42,7 +42,11 @@ dependencies {
     implementation("androidx.wear.compose:compose-material:1.4.0")
     implementation("androidx.wear.compose:compose-foundation:1.4.0")
     implementation("androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1")
+    implementation("androidx.wear.tiles:tiles:1.4.1")
+    implementation("androidx.wear.protolayout:protolayout:1.2.1")
+    implementation("androidx.wear.protolayout:protolayout-material:1.2.1")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 }
