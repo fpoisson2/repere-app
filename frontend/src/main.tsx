@@ -3173,6 +3173,18 @@ function Prefs({
           </label>
         </div>
       </section>
+      <section className="card full">
+        <div className="eyebrow">Export</div>
+        <h2>Consommations</h2>
+        <p className="muted">
+          Télécharge toutes tes consommations au format CSV pour les ouvrir dans un tableur.
+        </p>
+        <div className="actions">
+          <a className="add buttonlink" href="/api/export?format=csv" download="repere-consommations.csv">
+            <Download size={16} /> Télécharger le CSV
+          </a>
+        </div>
+      </section>
       <section className="full settingsimport">
         <ImportPage refresh={refresh} />
       </section>
