@@ -3447,6 +3447,8 @@ function DrinkSheet({
         abv_percent: abv,
         quantity: drink?.quantity || 1,
         started_at: new Date(started).toISOString(),
+        timezone_id: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        utc_offset_minutes: -new Date(started).getTimezoneOffset(),
         duration_minutes: duration,
       }),
     });

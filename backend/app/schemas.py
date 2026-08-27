@@ -21,6 +21,9 @@ class DrinkOut(DrinkIn):
     ended_at: datetime
     alcohol_grams: float
     canadian_standard_drinks: float
+    started_at_utc: datetime | None = None
+    ended_at_utc: datetime | None = None
+    local_date: date | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class Login(BaseModel):
