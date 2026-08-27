@@ -18,6 +18,8 @@ class CredentialStore(private val context:Context) {
 
     fun server(defaultValue:String=""):String=get("server",defaultValue)
     fun token():String=get("token","")
+    fun pendingWearOperations():String=get("pending_wear_operations","[]")
+    fun setPendingWearOperations(value:String){put("pending_wear_operations",value)}
     fun syncEnabled():Boolean=secure.getBoolean("sync_enabled",false)
     fun setSyncEnabled(enabled:Boolean){secure.edit().putBoolean("sync_enabled",enabled).apply()}
     fun save(server:String,token:String){put("server",server.trimEnd('/'));put("token",token);setSyncEnabled(true);legacy.edit().remove("server").remove("token").apply()}

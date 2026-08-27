@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
         fun toggle() = scope.launch {
             if (busy) return@launch; busy = true
             runCatching { if (active) Api.finish(this@MainActivity) else Api.start(this@MainActivity, volume, abv, quantity) }
-                .onSuccess { active = !active; prefs.edit().putBoolean("active", active).putInt("volume", volume).putFloat("abv", abv).putInt("quantity", quantity).apply(); ComplicationDataSourceUpdateRequester.create(this@MainActivity, ComponentName(this@MainActivity, QuickDrinkComplicationService::class.java)).requestUpdateAll(); message = if (active) "Début enregistré" else "Fin enregistrée" }
+                .onSuccess { result -> active = !active; prefs.edit().putBoolean("active", active).putInt("volume", volume).putFloat("abv", abv).putInt("quantity", quantity).apply(); ComplicationDataSourceUpdateRequester.create(this@MainActivity, ComponentName(this@MainActivity, QuickDrinkComplicationService::class.java)).requestUpdateAll(); message = if (result.optBoolean("queued")) "Enregistré hors ligne" else if (active) "Début enregistré" else "Fin enregistrée" }
                 .onFailure { message = it.message ?: "Synchronisation impossible" }
             busy = false
         }
