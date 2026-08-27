@@ -3429,12 +3429,7 @@ function DrinkSheet({
     [duration, setDuration] = useState(drink?.duration_minutes ?? 30),
     [started, setStarted] = useState(
       drink
-        ? new Date(
-            new Date(drink.started_at).getTime() -
-              new Date().getTimezoneOffset() * 60000,
-          )
-            .toISOString()
-            .slice(0, 16)
+        ? String(drink.started_at).replace(" ", "T").slice(0, 16)
         : initialStart(),
     );
   const submit = async () => {
