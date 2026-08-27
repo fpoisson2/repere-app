@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import ca.repere.data.DrinkEntity
 import ca.repere.data.PresetEntity
 import ca.repere.data.SyncRepository
@@ -44,12 +47,6 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private val Pine = Color(0xFF0F5946)
-private val PineDark = Color(0xFF093B30)
-private val Mint = Color(0xFFDDF3E9)
-private val Paper = Color(0xFFF7F9F5)
-private val Amber = Color(0xFFEAA33A)
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,8 +61,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Destination(val label:String,val mark:String) {
-    TODAY("Aujourd’hui","●"), HISTORY("Historique","≡"), HEALTH("Santé","♥"), SETTINGS("Réglages","⚙")
+private enum class Destination(val label:String,val mark:String,val inBar:Boolean=true) {
+    NOW("Maintenant","●"), STATS("Stats","▮"), INSIGHTS("Repères","◇"),
+    SUCCESS("Succès","★"), GOALS("Objectifs","◎"), SETTINGS("Réglages","⚙"),
+    HISTORY("Historique","≡",inBar=false), HEALTH("Santé","♥",inBar=false)
 }
 
 @Composable
@@ -74,7 +73,7 @@ private fun RepereApp(context:Context) {
     val repository=remember{SyncRepository(context)}
     val drinks by repository.observeDrinks().collectAsState(initial=emptyList())
     val presets by repository.observePresets().collectAsState(initial=emptyList())
-    var destination by remember{mutableStateOf(Destination.TODAY)}
+    var destination by remember{mutableStateOf(Destination.NOW)}
     var server by remember{mutableStateOf(credentials.server(BuildConfig.DEFAULT_SERVER_URL))}
     var token by remember{mutableStateOf(credentials.token())}
     var syncEnabled by remember{mutableStateOf(credentials.syncEnabled())}
@@ -91,20 +90,29 @@ private fun RepereApp(context:Context) {
     }
     LaunchedEffect(Unit){repository.ensureOfflineDefaults()}
     LaunchedEffect(token,syncEnabled){if(token.isNotBlank()&&syncEnabled)synchronize()}
+    // Re-read credentials (e.g. after the OAuth browser redirect) and refresh whenever the app returns to the foreground.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME){
+        server=credentials.server(BuildConfig.DEFAULT_SERVER_URL);token=credentials.token();syncEnabled=credentials.syncEnabled()
+        if(token.isNotBlank()&&syncEnabled)synchronize()
+    }
 
-    Scaffold(containerColor=Paper,bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.forEach{item ->
+    Scaffold(containerColor=Paper,bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.filter{it.inBar}.forEach{item ->
         NavigationBarItem(selected=destination==item,onClick={destination=item},icon={Text(item.mark,fontWeight=FontWeight.Bold)},label={Text(item.label)})
     }}}){padding ->
         Box(Modifier.padding(padding).fillMaxSize()){
             when(destination){
-                Destination.TODAY -> TodayScreen(drinks,presets,status,syncing,{synchronize()},onAdd={preset -> scope.launch{
+                Destination.NOW -> TodayScreen(drinks,presets,status,{synchronize()},onAdd={preset -> scope.launch{
                     repository.createFromPreset(preset,OffsetDateTime.now().toString());status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
                 }},onCustom={name,volume,abv,quantity -> scope.launch{
                     repository.createCustom(name,volume,abv,quantity,OffsetDateTime.now().toString());status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
                 }})
+                Destination.STATS -> StatsScreen(context)
+                Destination.INSIGHTS -> InsightsScreen(context)
+                Destination.SUCCESS -> SuccessScreen(context)
+                Destination.GOALS -> GoalsScreen(context)
                 Destination.HISTORY -> HistoryScreen(drinks){clientId -> scope.launch{repository.markDeleted(clientId);status=if(syncEnabled)"Suppression en attente" else "Suppression locale";synchronize()}}
                 Destination.HEALTH -> HealthScreen(context,server,token)
-                Destination.SETTINGS -> SettingsScreen(context,server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.TODAY},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status)
+                Destination.SETTINGS -> SettingsScreen(context,server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH})
             }
         }
     }
@@ -119,13 +127,16 @@ private fun PageHeader(eyebrow:String,title:String,trailing:(@Composable () -> U
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TodayScreen(drinks:List<DrinkEntity>,presets:List<PresetEntity>,status:String,syncing:Boolean,onSync:()->Unit,onAdd:(PresetEntity)->Unit,onCustom:(String,Double,Double,Int)->Unit) {
+private fun TodayScreen(drinks:List<DrinkEntity>,presets:List<PresetEntity>,status:String,onSync:()->Unit,onAdd:(PresetEntity)->Unit,onCustom:(String,Double,Double,Int)->Unit) {
     val today=LocalDate.now().toString();val todayDrinks=drinks.filter{it.startedAt.take(10)==today}
     val standards=todayDrinks.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}
     var custom by remember{mutableStateOf(false)}
+    val refreshing=status.startsWith("Synchronisation")
+    PullToRefreshBox(isRefreshing=refreshing,onRefresh=onSync,modifier=Modifier.fillMaxSize()){
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())){
-        PageHeader("Repère quotidien","Ce soir"){TextButton(onClick=onSync,enabled=!syncing){Text(if(syncing)"…" else "Actualiser")}}
+        PageHeader("Repère quotidien","Ce soir")
         Card(Modifier.padding(horizontal=20.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=PineDark),shape=RoundedCornerShape(28.dp)){
             Column(Modifier.padding(24.dp)){
                 Text("AUJOURD’HUI",color=Mint.copy(alpha=.75f),style=MaterialTheme.typography.labelSmall,fontWeight=FontWeight.Bold)
@@ -147,6 +158,7 @@ private fun TodayScreen(drinks:List<DrinkEntity>,presets:List<PresetEntity>,stat
         Text("Entrées du jour",Modifier.padding(start=20.dp,top=26.dp,bottom=8.dp),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
         if(todayDrinks.isEmpty()) Text("Aucune consommation saisie. La journée reste ouverte.",Modifier.padding(horizontal=20.dp),color=Pine.copy(alpha=.65f))
         todayDrinks.forEach{DrinkRow(it)};Spacer(Modifier.height(24.dp))
+    }
     }
     if(custom)CustomDrinkDialog(onDismiss={custom=false}){name,volume,abv,quantity -> onCustom(name,volume,abv,quantity);custom=false}
 }
@@ -229,25 +241,29 @@ private fun HealthScreen(context:Context,server:String,token:String) {
 }
 
 @Composable
-private fun SettingsScreen(context:Context,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String) {
-    val credentials=remember{CredentialStore(context)};var code by remember{mutableStateOf("")};var message by remember{mutableStateOf(status)};val scope=rememberCoroutineScope()
+private fun SettingsScreen(context:Context,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit) {
+    val credentials=remember{CredentialStore(context)};var message by remember{mutableStateOf(status)};val scope=rememberCoroutineScope()
     fun syncToWatch(currentToken:String)=scope.launch{val request=PutDataMapRequest.create("/repere/config").apply{dataMap.putString("server",server.trimEnd('/'));dataMap.putString("token",currentToken);dataMap.putLong("updated",System.currentTimeMillis())}.asPutDataRequest().setUrgent();runCatching{Wearable.getDataClient(context).putDataItem(request).await()}}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())){PageHeader("Téléphone et montre","Réglages")
         Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
             OutlinedTextField(server,onServer,label={Text("Adresse du serveur")},modifier=Modifier.fillMaxWidth(),singleLine=true)
             Text("Repère fonctionne entièrement sur ce téléphone. La connexion au serveur est facultative.",color=Pine.copy(alpha=.72f))
             if(token.isBlank()){
-                OutlinedTextField(code,{code=it.filter(Char::isDigit).take(6)},label={Text("Code à 6 chiffres")},modifier=Modifier.fillMaxWidth(),singleLine=true)
-                Button(onClick={scope.launch{message="Association…";runCatching{Api.post(server,"","/api/wear/pair",JSONObject().put("code",code).put("device_name","Téléphone Android"))}
-                    .onSuccess{result -> val next=result.getString("token");credentials.save(server,next);syncToWatch(next);onToken(next);message="Téléphone et montre associés"}.onFailure{message=it.message?:"Association impossible"}}},enabled=code.length==6,modifier=Modifier.fillMaxWidth()){Text("Associer à Repère")}
+                Button(onClick={OAuthClient.start(context,server)},enabled=server.isNotBlank(),modifier=Modifier.fillMaxWidth()){Text("Se connecter à Repère")}
+                Text("Une page sécurisée s’ouvrira pour autoriser l’application (OAuth 2.0 + PKCE).",color=Pine.copy(alpha=.72f),style=MaterialTheme.typography.bodySmall)
             }else{
                 Card(colors=CardDefaults.cardColors(containerColor=Mint),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(18.dp)){Text("Appareil associé",fontWeight=FontWeight.Bold);Text("La copie hors ligne est active.",color=Pine.copy(alpha=.72f))}}
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("Synchroniser avec le serveur",fontWeight=FontWeight.Bold);Text(if(syncEnabled)"Les changements seront envoyés" else "Les données restent sur cet appareil",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
                     Switch(checked=syncEnabled,onCheckedChange={credentials.setSyncEnabled(it);onSyncEnabled(it);if(it)SyncWorker.schedule(context)})}
                 OutlinedButton(onClick={syncToWatch(token);message="Configuration envoyée à la montre"},modifier=Modifier.fillMaxWidth()){Text("Synchroniser la montre")}
-                TextButton(onClick={credentials.clear();onToken("");message="Association retirée"},modifier=Modifier.fillMaxWidth()){Text("Dissocier ce téléphone")}
+                TextButton(onClick={scope.launch{OAuthClient.signOut(context);onToken("");message="Déconnecté"}},modifier=Modifier.fillMaxWidth()){Text("Se déconnecter")}
             }
             Text(message,color=Pine.copy(alpha=.72f))
+            HorizontalDivider(Modifier.padding(vertical=6.dp))
+            Text("Application",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick=onOpenHealth,modifier=Modifier.fillMaxWidth()){Text("Données de santé (Health Connect)")}
+            OutlinedButton(onClick=onOpenHistory,modifier=Modifier.fillMaxWidth()){Text("Historique complet")}
+            Spacer(Modifier.height(20.dp))
         }
     }
 }

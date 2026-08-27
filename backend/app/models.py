@@ -84,6 +84,33 @@ class WearToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+class OAuthAuthCode(Base):
+    __tablename__ = "oauth_auth_codes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    client_id: Mapped[str] = mapped_column(String(64))
+    redirect_uri: Mapped[str] = mapped_column(String(255))
+    code_challenge: Mapped[str] = mapped_column(String(128))
+    scope: Mapped[str] = mapped_column(String(255), default="")
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class OAuthToken(Base):
+    __tablename__ = "oauth_tokens"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    access_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    refresh_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    client_id: Mapped[str] = mapped_column(String(64))
+    device_name: Mapped[str] = mapped_column(String(120), default="Application")
+    scope: Mapped[str] = mapped_column(String(255), default="")
+    access_expires_at: Mapped[datetime] = mapped_column(DateTime)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class SyncEvent(Base):
     __tablename__ = "sync_events"
     id: Mapped[int] = mapped_column(primary_key=True)

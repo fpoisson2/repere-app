@@ -13,15 +13,17 @@ from sqlalchemy.orm import Session
 from . import __version__
 from .auth import current_user, hash_password, verify_password, wear_user
 from .db import Base, engine, get_db
-from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, GoalAchievement, ImportBatch, Preset, SyncEvent, SyncMutation, TrackedDay, User, WearPairingCode, WearToken
+from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, GoalAchievement, HealthDailyAggregate, ImportBatch, Preset, SyncEvent, SyncMutation, TrackedDay, User, WearPairingCode, WearToken
 from .schemas import DrinkIn, DrinkOut, Login, SettingsPatch
 from .services import (aggregate_periods, alcohol, bac_at, bac_projection, compare_series,
  daily_series, import_csv, key_for, pearson, period_stats, reduction_records, sessions, spearman, temporal_stats)
 from .settings import settings
 from .longitudinal import router as longitudinal_router
+from .oauth import router as oauth_router
 
 app=FastAPI(title="Repère", version=__version__)
 app.include_router(longitudinal_router)
+app.include_router(oauth_router)
 login_attempts={}
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=[x.strip() for x in settings.trusted_hosts.split(",")])
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, https_only=settings.secure_cookies,
@@ -146,9 +148,15 @@ def wear_presets(u:User=Depends(wear_user),db:Session=Depends(get_db)):
     return [{"id":x.id,"name":x.name,"drink_type":x.drink_type,"volume_ml":x.volume_ml,"abv_percent":x.abv_percent} for x in rows]
 
 @app.get("/api/wear/state")
-def wear_state(u:User=Depends(wear_user),db:Session=Depends(get_db)):
+def wear_state(now:str|None=None,u:User=Depends(wear_user),db:Session=Depends(get_db)):
     active=db.scalar(select(Drink).where(Drink.user_id==u.id,Drink.is_active.is_(True)).order_by(Drink.started_at.desc()))
-    return {"active":wear_drink_out(active) if active else None,"server_time":datetime.now()}
+    ref=datetime.now()
+    if now:
+        try:ref,_=local_and_utc(datetime.fromisoformat(now.replace("Z","+00:00")))
+        except Exception:pass
+    today=(ref-timedelta(hours=u.day_start_hour)).date()
+    today_standard=db.scalar(select(func.coalesce(func.sum(Drink.canadian_standard_drinks),0.0)).where(Drink.user_id==u.id,Drink.local_date==today))
+    return {"active":wear_drink_out(active) if active else None,"today_standard_drinks":round(float(today_standard or 0.0),1),"server_time":datetime.now()}
 
 @app.post("/api/wear/start",status_code=201)
 def wear_start(payload:dict,idempotency_key:str|None=Header(None,alias="Idempotency-Key"),u:User=Depends(wear_user),db:Session=Depends(get_db)):
@@ -379,6 +387,37 @@ def unmark_sober(day:date,u:User=Depends(current_user),db:Session=Depends(get_db
 @app.get("/api/stats")
 def stats(days:int=30,u:User=Depends(current_user),db:Session=Depends(get_db)):
     series=daily_series(db,u,date.today()-timedelta(days=days-1),date.today()); return {"tracking_start_date":u.tracking_start_date,"period":period_stats(series),"days":series}
+
+HEALTH_STAT_TYPES=("sleep","steps","exercise","resting_heart_rate","heart_rate","hrv_rmssd")
+HEALTH_CUMULATIVE={"sleep","steps","exercise"}
+
+def health_daily(db:Session,u:User,start:date,end:date)->tuple[dict,dict]:
+    """Per-day health values keyed by record_type, plus a unit per type.
+    Multiple origins on the same day are reduced: cumulative types take the max
+    (avoids double counting overlapping sources), rates take the mean."""
+    rows=db.scalars(select(HealthDailyAggregate).where(HealthDailyAggregate.user_id==u.id,
+        HealthDailyAggregate.local_date>=start,HealthDailyAggregate.local_date<=end)).all()
+    grouped:dict[str,dict[str,list[float]]]={}
+    units:dict[str,str]={}
+    for r in rows:
+        if r.value is None:continue
+        units.setdefault(r.record_type,r.unit or "")
+        grouped.setdefault(r.local_date.isoformat(),{}).setdefault(r.record_type,[]).append(r.value)
+    per_day={day:{t:(max(v) if t in HEALTH_CUMULATIVE else sum(v)/len(v)) for t,v in types.items() if v}
+      for day,types in grouped.items()}
+    return per_day,units
+
+@app.get("/api/stats/health")
+def stats_health(days:int=90,u:User=Depends(current_user),db:Session=Depends(get_db)):
+    start=date.today()-timedelta(days=days-1);end=date.today()
+    series=daily_series(db,u,start,end)
+    per_day,units=health_daily(db,u,start,end)
+    days_out=[{**row,"health":per_day.get(row["date"],{})} for row in series]
+    present=[t for t in HEALTH_STAT_TYPES if any(t in row["health"] for row in days_out)]
+    correlations={t:pearson([(row["standards"],row["health"][t]) for row in days_out
+        if row["observed"] and t in row["health"]]) for t in present}
+    return {"tracking_start_date":u.tracking_start_date,"days":days_out,"types":present,
+      "units":{t:units.get(t,"") for t in present},"correlations":correlations}
 
 @app.get("/api/stats/distribution")
 def distribution(days:int=90,u:User=Depends(current_user),db:Session=Depends(get_db)): return stats(days,u,db)["period"]

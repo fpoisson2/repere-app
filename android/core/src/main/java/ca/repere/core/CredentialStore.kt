@@ -18,6 +18,10 @@ class CredentialStore(private val context:Context) {
 
     fun server(defaultValue:String=""):String=get("server",defaultValue)
     fun token():String=get("token","")
+    fun refreshToken():String=get("refresh_token","")
+    fun setRefreshToken(value:String){put("refresh_token",value)}
+    fun oauthTransient():String=get("oauth_transient","")
+    fun setOauthTransient(value:String){put("oauth_transient",value)}
     fun pendingWearOperations():String=get("pending_wear_operations","[]")
     fun setPendingWearOperations(value:String){put("pending_wear_operations",value)}
     fun syncEnabled():Boolean=secure.getBoolean("sync_enabled",false)

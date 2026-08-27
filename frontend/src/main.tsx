@@ -1529,6 +1529,7 @@ function Stats({ stats }: { stats: any }) {
         </section>
       )}
       {trends && <MovingChart trends={trends} goals={goals} />}
+      <HealthTrends />
       <section className="card full">
         <div className="eyebrow">Heatmap · grammes</div>
         <h2>365 derniers jours observables</h2>
@@ -2006,6 +2007,168 @@ function FirstStartMiniChart({
         </div>
       </div>
     </div>
+  );
+}
+const HEALTH_LABELS: Record<
+  string,
+  { label: string; fmt: (v: number) => string }
+> = {
+  sleep: { label: "Sommeil", fmt: (v) => `${(v / 60).toFixed(1)} h` },
+  steps: { label: "Pas", fmt: (v) => Math.round(v).toLocaleString("fr-CA") },
+  exercise: { label: "Exercice", fmt: (v) => `${Math.round(v)} min` },
+  resting_heart_rate: {
+    label: "FC au repos",
+    fmt: (v) => `${Math.round(v)} bpm`,
+  },
+  heart_rate: { label: "FC moyenne", fmt: (v) => `${Math.round(v)} bpm` },
+  hrv_rmssd: { label: "VFC (RMSSD)", fmt: (v) => `${Math.round(v)} ms` },
+};
+function HealthTrends() {
+  const [data, setData] = useState<any>(),
+    [days, setDays] = useState("90"),
+    [metric, setMetric] = useState("");
+  useEffect(() => {
+    api(`/stats/health?days=${days}`).then(setData);
+  }, [days]);
+  useEffect(() => {
+    if (data?.types?.length && !data.types.includes(metric))
+      setMetric(data.types[0]);
+  }, [data]);
+  if (!data) return null;
+  if (!data.types.length)
+    return (
+      <section className="card full">
+        <div className="eyebrow">Santé</div>
+        <h2>Données de santé</h2>
+        <p className="muted">
+          Aucune donnée de santé importée pour l’instant. Active Santé / Health
+          Connect depuis l’application Android pour comparer sommeil, pas ou
+          fréquence cardiaque avec ta consommation.
+        </p>
+      </section>
+    );
+  const rows = data.days,
+    info = HEALTH_LABELS[metric] || {
+      label: metric,
+      fmt: (v: number) => v.toFixed(1),
+    },
+    values = rows
+      .map((r: any) => r.health[metric])
+      .filter((v: any) => v != null),
+    hMax = Math.max(...values, 0.01),
+    hMin = Math.min(...values, hMax),
+    span = hMax - hMin || 1,
+    sMax = Math.max(...rows.map((r: any) => r.standards || 0), 0.01),
+    linePoints = rows
+      .map((r: any, i: number) => {
+        const v = r.health[metric];
+        return v == null
+          ? ""
+          : `${(i / Math.max(1, rows.length - 1)) * 100},${52 - ((v - hMin) / span) * 48}`;
+      })
+      .filter(Boolean)
+      .join(" "),
+    corr = data.correlations?.[metric],
+    strength =
+      corr == null
+        ? ""
+        : Math.abs(corr) < 0.2
+          ? "faible"
+          : Math.abs(corr) < 0.4
+            ? "modérée"
+            : "forte";
+  return (
+    <section className="card full">
+      <div className="sectionhead">
+        <div>
+          <div className="eyebrow">Santé</div>
+          <h2>{info.label} et consommation</h2>
+        </div>
+        <div className="segmented">
+          {data.types.map((t: string) => (
+            <button
+              key={t}
+              className={metric === t ? "active" : ""}
+              onClick={() => setMetric(t)}
+            >
+              {HEALTH_LABELS[t]?.label || t}
+            </button>
+          ))}
+          {["30", "90", "180", "365"].map((d) => (
+            <button
+              key={d}
+              className={days === d ? "active" : ""}
+              onClick={() => setDays(d)}
+            >
+              {d} j
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="linechart">
+        <div className="chartaxis" aria-hidden="true">
+          <span>{info.fmt(hMax)}</span>
+          <span>{info.fmt(hMin + span / 2)}</span>
+          <span>{info.fmt(hMin)}</span>
+        </div>
+        <div className="trendbars" aria-hidden="true">
+          {rows.map((r: any) => (
+            <i
+              key={r.date}
+              className={r.status}
+              style={{ height: `${((r.standards || 0) / sMax) * 85.7142}%` }}
+            />
+          ))}
+        </div>
+        <svg viewBox="0 0 100 56" preserveAspectRatio="none">
+          <polyline points={linePoints} />
+        </svg>
+        {rows.map((r: any, i: number) =>
+          r.health[metric] == null ? null : (
+            <span
+              key={r.date}
+              tabIndex={0}
+              className="chartpoint has-tip"
+              data-tip={`${r.date} · ${info.label} : ${info.fmt(r.health[metric])} · consommation : ${(r.standards || 0).toFixed(2)} standards`}
+              style={{
+                left: `${(i / Math.max(1, rows.length - 1)) * 100}%`,
+                bottom: `${7.1429 + ((r.health[metric] - hMin) / span) * 85.7142}%`,
+              }}
+            />
+          ),
+        )}
+      </div>
+      <div className="chartlegend">
+        <span>
+          <i className="dailykey" /> Consommation (standards / jour)
+        </span>
+        <span>
+          <i className="movingkey" /> {info.label}
+        </span>
+      </div>
+      <div className="metrics">
+        <Metric
+          label="Corrélation avec la consommation"
+          value={corr == null ? "—" : `r = ${corr.toFixed(2)} · ${strength}`}
+        />
+        <Metric
+          label={`${info.label} — moyenne`}
+          value={
+            values.length
+              ? info.fmt(
+                  values.reduce((a: number, b: number) => a + b, 0) /
+                    values.length,
+                )
+              : "—"
+          }
+        />
+        <Metric label="Jours avec donnée" value={values.length} />
+      </div>
+      <p className="muted">
+        Corrélation de Pearson sur les journées où les deux mesures sont
+        présentes. Une corrélation n’implique pas de causalité.
+      </p>
+    </section>
   );
 }
 function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {

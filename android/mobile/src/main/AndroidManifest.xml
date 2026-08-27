@@ -10,11 +10,20 @@
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
     <queries><package android:name="com.google.android.apps.healthdata" /></queries>
-    <application android:theme="@style/Theme.Repere" android:label="Repère" android:icon="@drawable/ic_repere" android:usesCleartextTraffic="${usesCleartextTraffic}">
+    <application android:theme="@style/Theme.Repere" android:label="Repère" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:usesCleartextTraffic="${usesCleartextTraffic}">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".OAuthRedirectActivity" android:exported="true"
+            android:launchMode="singleTask" android:taskAffinity="" android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ca.repere.app" android:host="oauth2redirect" />
             </intent-filter>
         </activity>
         <activity android:name=".PermissionsRationaleActivity" android:exported="true">

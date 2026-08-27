@@ -7,6 +7,7 @@ import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -19,18 +20,19 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.OffsetDateTime
 import java.time.ZoneId
-import ca.repere.core.CredentialStore
 
 object Api {
     private val queueMutex = Mutex()
 
     suspend fun state(context: Context): JSONObject {
         runCatching { flushPending(context) }
-        return networkCall(context, operation("/api/wear/state", "GET", null))
+        // Send the watch's local time so the server buckets "today" in the user's timezone.
+        val now = URLEncoder.encode(OffsetDateTime.now().toString(), "UTF-8")
+        return networkCall(context, operation("/api/wear/state?now=$now", "GET", null))
     }
 
-    suspend fun start(context: Context, volume: Int, abv: Float, quantity: Int): JSONObject =
-        sendOrQueue(context, operation("/api/wear/start", "POST", JSONObject().put("volume_ml", volume).put("abv_percent", abv).put("quantity", quantity).put("started_at", OffsetDateTime.now().toString()).put("timezone_id", ZoneId.systemDefault().id).put("utc_offset_minutes", OffsetDateTime.now().offset.totalSeconds / 60)))
+    suspend fun start(context: Context, volume: Int, abv: Float): JSONObject =
+        sendOrQueue(context, operation("/api/wear/start", "POST", JSONObject().put("volume_ml", volume).put("abv_percent", abv).put("quantity", 1).put("started_at", OffsetDateTime.now().toString()).put("timezone_id", ZoneId.systemDefault().id).put("utc_offset_minutes", OffsetDateTime.now().offset.totalSeconds / 60)))
 
     suspend fun finish(context: Context): JSONObject =
         sendOrQueue(context, operation("/api/wear/finish", "POST", JSONObject().put("ended_at", OffsetDateTime.now().toString())))

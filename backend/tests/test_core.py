@@ -64,7 +64,12 @@ def test_wear_pair_start_and_finish(client):
     assert client.get("/api/wear/state",headers=headers).json()["active"]["id"]==started["id"]
     finished=client.post("/api/wear/finish",headers=headers,json={"ended_at":"2026-08-25T18:42:00"}).json()
     assert finished["is_active"] is False and finished["duration_minutes"]==42
-    assert client.get("/api/wear/state",headers=headers).json()["active"] is None
+    state=client.get("/api/wear/state",headers=headers).json()
+    assert state["active"] is None and state["today_standard_drinks"]==0
+    dated=client.get("/api/wear/state?now=2026-08-25T20:00:00",headers=headers).json()
+    assert dated["today_standard_drinks"]==pytest.approx(finished["canadian_standard_drinks"],abs=0.05)
+    today=client.post("/api/wear/start",headers={**headers,"Idempotency-Key":"wear-test-2"},json={"preset_id":presets[0]["id"],"quantity":1}).json()
+    assert client.get("/api/wear/state",headers=headers).json()["today_standard_drinks"]==pytest.approx(today["canadian_standard_drinks"],abs=0.05)
 
 def test_wear_pairing_code_is_single_use(client):
     code=client.post("/api/wear/pairing-code").json()["code"]
@@ -195,3 +200,95 @@ def test_pwa_and_foldable_navigation_assets():
 import json
 from pathlib import Path
 import pytest
+
+
+import base64 as _b64, hashlib as _hl, os as _os
+from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs
+from fastapi.testclient import TestClient as _TestClient
+from app.main import app as _app
+
+def _pkce():
+    verifier = _b64.urlsafe_b64encode(_os.urandom(40)).rstrip(b"=").decode()
+    challenge = _b64.urlsafe_b64encode(_hl.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return verifier, challenge
+
+_REDIRECT = "ca.repere.app://oauth2redirect"
+
+def _authorize_code(client, challenge, state="xyz"):
+    r = client.post("/api/oauth/authorize", data={
+        "client_id": "repere-android", "redirect_uri": _REDIRECT, "code_challenge": challenge,
+        "state": state, "decision": "allow"}, follow_redirects=False)
+    assert r.status_code == 302, r.text
+    loc = r.headers["location"]
+    assert loc.startswith(_REDIRECT + "?")
+    q = _parse_qs(_urlparse(loc).query)
+    assert q.get("state") == [state]
+    return q["code"][0]
+
+def test_oauth_pkce_happy_path(client):
+    verifier, challenge = _pkce()
+    page = client.get("/api/oauth/authorize", params={
+        "response_type": "code", "client_id": "repere-android", "redirect_uri": _REDIRECT,
+        "code_challenge": challenge, "code_challenge_method": "S256", "state": "xyz"})
+    assert page.status_code == 200 and "Autoriser" in page.text
+    code = _authorize_code(client, challenge)
+    tok = client.post("/api/oauth/token", data={
+        "grant_type": "authorization_code", "code": code, "redirect_uri": _REDIRECT,
+        "client_id": "repere-android", "code_verifier": verifier}).json()
+    assert tok["token_type"] == "bearer" and tok["access_token"] and tok["refresh_token"]
+    with _TestClient(_app) as bare:
+        me = bare.get("/api/auth/me", headers={"Authorization": f"Bearer {tok['access_token']}"})
+        assert me.status_code == 200 and me.json()["username"] == "test"
+        reuse = bare.post("/api/oauth/token", data={
+            "grant_type": "authorization_code", "code": code, "redirect_uri": _REDIRECT,
+            "client_id": "repere-android", "code_verifier": verifier})
+        assert reuse.status_code == 400
+    refreshed = client.post("/api/oauth/token", data={
+        "grant_type": "refresh_token", "refresh_token": tok["refresh_token"], "client_id": "repere-android"}).json()
+    assert refreshed["access_token"] and refreshed["access_token"] != tok["access_token"]
+
+def test_oauth_rejects_unknown_client(client):
+    r = client.get("/api/oauth/authorize", params={
+        "response_type": "code", "client_id": "evil", "redirect_uri": "https://evil.example/cb",
+        "code_challenge": "x", "code_challenge_method": "S256"})
+    assert r.status_code == 400
+
+def test_oauth_pkce_verifier_mismatch_rejected(client):
+    _, challenge = _pkce()
+    code = _authorize_code(client, challenge)
+    r = client.post("/api/oauth/token", data={
+        "grant_type": "authorization_code", "code": code, "redirect_uri": _REDIRECT,
+        "client_id": "repere-android", "code_verifier": "wrong-verifier"})
+    assert r.status_code == 400 and r.json()["error"] == "invalid_grant"
+
+def test_oauth_denied_redirects_with_error(client):
+    r = client.post("/api/oauth/authorize", data={
+        "client_id": "repere-android", "redirect_uri": _REDIRECT, "code_challenge": "abc",
+        "state": "s1", "decision": "deny"}, follow_redirects=False)
+    assert r.status_code == 302 and "error=access_denied" in r.headers["location"]
+
+
+def test_stats_health_series_and_correlation(client):
+    client.patch("/api/settings", json={"tracking_start_date": "2026-08-01", "day_start_hour": 0})
+    for day, vol in [("2026-08-20", 500), ("2026-08-21", 200), ("2026-08-22", 700)]:
+        client.post("/api/drinks", json={"drink_name": "Test", "volume_ml": vol, "abv_percent": 5,
+                                         "started_at": f"{day}T19:00:00", "duration_minutes": 30})
+    pairing = client.post("/api/wear/pairing-code").json()["code"]
+    tok = client.post("/api/wear/pair", json={"code": pairing}).json()["token"]
+    h = {"Authorization": f"Bearer {tok}"}
+
+    def agg(day, rtype, value, unit):
+        return {"local_date": day, "record_type": rtype, "value": value, "unit": unit,
+                "window_start_utc": f"{day}T00:00:00", "window_end_utc": f"{day}T23:59:59",
+                "origin_package": "com.test", "aggregation_method": "total"}
+    rows = []
+    for day, sleep in [("2026-08-20", 360), ("2026-08-21", 480), ("2026-08-22", 300)]:
+        rows += [agg(day, "sleep", sleep, "min"), agg(day, "steps", 8000, "count")]
+    assert client.post("/api/health-connect/aggregates", headers=h, json=rows).status_code == 200
+
+    data = client.get("/api/stats/health?days=40").json()
+    assert set(data["types"]) >= {"sleep", "steps"}
+    by_date = {d["date"]: d for d in data["days"]}
+    assert by_date["2026-08-21"]["health"]["sleep"] == 480
+    assert data["units"]["sleep"] == "min"
+    assert -1.0 <= data["correlations"]["sleep"] <= 1.0

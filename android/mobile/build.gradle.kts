@@ -12,7 +12,7 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "ca.repere.mobile"
     compileSdk = 36
-    defaultConfig { applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36; versionCode = 36010001; versionName = "1.0.1" }
+    defaultConfig { applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36; versionCode = 36010004; versionName = "1.2.0" }
     buildFeatures { compose = true; buildConfig = true }
     defaultConfig {
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://repere.ve2fpd.com\"")
@@ -44,6 +44,9 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.browser:browser:1.8.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("androidx.health.connect:connect-client:1.1.0")
