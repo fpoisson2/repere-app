@@ -11,6 +11,8 @@ class User(Base):
     tracking_start_date: Mapped[date | None] = mapped_column(Date)
     tracking_start_explicit: Mapped[bool] = mapped_column(Boolean, default=False)
     weight_kg: Mapped[float] = mapped_column(Float, default=75)
+    height_cm: Mapped[float | None] = mapped_column(Float)
+    sex: Mapped[str] = mapped_column(String(12), default="unspecified")
     distribution_ratio: Mapped[float] = mapped_column(Float, default=.68)
     elimination_rate: Mapped[float] = mapped_column(Float, default=.015)
     session_gap_hours: Mapped[float] = mapped_column(Float, default=4)

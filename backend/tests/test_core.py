@@ -292,3 +292,13 @@ def test_stats_health_series_and_correlation(client):
     assert by_date["2026-08-21"]["health"]["sleep"] == 480
     assert data["units"]["sleep"] == "min"
     assert -1.0 <= data["correlations"]["sleep"] <= 1.0
+
+
+def test_body_metrics_drive_distribution_ratio(client):
+    r0 = client.get("/api/auth/me").json()["effective_distribution_ratio"]
+    patched = client.patch("/api/settings", json={"sex": "female", "height_cm": 165, "weight_kg": 62}).json()
+    assert 0.45 <= patched["distribution_ratio"] <= 0.75
+    me = client.get("/api/auth/me").json()
+    assert me["sex"] == "female" and me["height_cm"] == 165
+    male = client.patch("/api/settings", json={"sex": "male", "height_cm": 180, "weight_kg": 85}).json()
+    assert male["distribution_ratio"] > patched["distribution_ratio"]

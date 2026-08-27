@@ -33,6 +33,8 @@ class Login(BaseModel):
 class SettingsPatch(BaseModel):
     tracking_start_date: date | None = None
     weight_kg: float | None = Field(default=None, gt=20, lt=400)
+    height_cm: float | None = Field(default=None, gt=100, lt=250)
+    sex: str | None = Field(default=None, pattern="^(male|female|unspecified)$")
     distribution_ratio: float | None = Field(default=None, gt=.3, lt=1)
     elimination_rate: float | None = Field(default=None, gt=.005, lt=.04)
     session_gap_hours: float | None = Field(default=None, gt=0, le=24)

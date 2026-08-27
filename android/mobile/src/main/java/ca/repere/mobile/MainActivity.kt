@@ -13,9 +13,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.LocalBar
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,24 +66,31 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SyncWorker.schedule(this)
+        CheckInReminder.schedule(this) // re-arm the daily reminder chain if it was enabled
+        val openCheckIn = intent?.getBooleanExtra("open_checkin", false) == true
         setContent {
             MaterialTheme(
                 colorScheme=lightColorScheme(primary=Pine,onPrimary=Color.White,primaryContainer=Mint,
                     background=Paper,surface=Color.White,onSurface=PineDark,secondary=Amber),
                 shapes=Shapes(medium=RoundedCornerShape(20.dp),large=RoundedCornerShape(28.dp))
-            ) { RepereApp(this) }
+            ) { RepereApp(this, openCheckIn) }
         }
     }
 }
 
-private enum class Destination(val label:String,val mark:String,val inBar:Boolean=true) {
-    NOW("Maintenant","●"), STATS("Stats","▮"), INSIGHTS("Repères","◇"),
-    SUCCESS("Succès","★"), GOALS("Objectifs","◎"), SETTINGS("Réglages","⚙"),
-    HISTORY("Historique","≡",inBar=false), HEALTH("Santé","♥",inBar=false)
+private enum class Destination(val label:String,val icon:ImageVector,val inBar:Boolean=true) {
+    NOW("Maintenant",Icons.Filled.LocalBar),
+    STATS("Stats",Icons.AutoMirrored.Filled.ShowChart),
+    INSIGHTS("Repères",Icons.Filled.Insights),
+    SUCCESS("Succès",Icons.Filled.EmojiEvents),
+    GOALS("Objectifs",Icons.Filled.Flag),
+    SETTINGS("Réglages",Icons.Filled.Settings),
+    HISTORY("Historique",Icons.Filled.History,inBar=false),
+    HEALTH("Santé",Icons.Filled.MonitorHeart,inBar=false)
 }
 
 @Composable
-private fun RepereApp(context:Context) {
+private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     val credentials=remember{CredentialStore(context)}
     val repository=remember{SyncRepository(context)}
     val drinks by repository.observeDrinks().collectAsState(initial=emptyList())
@@ -84,7 +106,7 @@ private fun RepereApp(context:Context) {
     fun synchronize()=scope.launch {
         if(token.isBlank()||!syncEnabled)return@launch
         syncing=true;status="Synchronisation…"
-        runCatching{repository.synchronize()}.onSuccess{status="À jour"}
+        runCatching{repository.synchronize()}.onSuccess{status="À jour";pokeWatch(context)}
             .onFailure{status="Hors ligne · les saisies sont conservées"}
         syncing=false
     }
@@ -97,15 +119,20 @@ private fun RepereApp(context:Context) {
     }
 
     Scaffold(containerColor=Paper,bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.filter{it.inBar}.forEach{item ->
-        NavigationBarItem(selected=destination==item,onClick={destination=item},icon={Text(item.mark,fontWeight=FontWeight.Bold)},label={Text(item.label)})
+        NavigationBarItem(selected=destination==item,onClick={destination=item},
+            icon={Icon(item.icon,contentDescription=item.label)},
+            label={Text(item.label,maxLines=1,style=MaterialTheme.typography.labelSmall)})
     }}}){padding ->
         Box(Modifier.padding(padding).fillMaxSize()){
             when(destination){
-                Destination.NOW -> TodayScreen(drinks,presets,status,{synchronize()},onAdd={preset -> scope.launch{
-                    repository.createFromPreset(preset,OffsetDateTime.now().toString());status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
-                }},onCustom={name,volume,abv,quantity -> scope.launch{
-                    repository.createCustom(name,volume,abv,quantity,OffsetDateTime.now().toString());status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
-                }})
+                Destination.NOW -> MaintenantScreen(context,drinks,presets,status,openCheckIn,{synchronize()},
+                    onCustom={name,volume,abv,quantity,startedAt,duration -> scope.launch{
+                        repository.createCustom(name,volume,abv,quantity,startedAt,duration);status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
+                    }},
+                    onEdit={id,name,volume,abv,quantity,startedAt,duration -> scope.launch{
+                        repository.updateOffline(id,name,volume,abv,quantity,startedAt,duration);status="Modification en attente";synchronize()
+                    }},
+                    onDelete={id -> scope.launch{repository.markDeleted(id);status="Suppression en attente";synchronize()}})
                 Destination.STATS -> StatsScreen(context)
                 Destination.INSIGHTS -> InsightsScreen(context)
                 Destination.SUCCESS -> SuccessScreen(context)
@@ -116,6 +143,15 @@ private fun RepereApp(context:Context) {
             }
         }
     }
+}
+
+/** Nudge the watch to refresh its complication after the phone changes drink data. */
+private fun pokeWatch(context:Context){
+    val request=PutDataMapRequest.create("/repere/config").apply{
+        dataMap.putLong("synced_at",System.currentTimeMillis())
+        CredentialStore(context).let{dataMap.putString("server",it.server().trimEnd('/'));dataMap.putString("token",it.token())}
+    }.asPutDataRequest().setUrgent()
+    runCatching{Wearable.getDataClient(context).putDataItem(request)}
 }
 
 @Composable
@@ -129,58 +165,276 @@ private fun PageHeader(eyebrow:String,title:String,trailing:(@Composable () -> U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TodayScreen(drinks:List<DrinkEntity>,presets:List<PresetEntity>,status:String,onSync:()->Unit,onAdd:(PresetEntity)->Unit,onCustom:(String,Double,Double,Int)->Unit) {
-    val today=LocalDate.now().toString();val todayDrinks=drinks.filter{it.startedAt.take(10)==today}
-    val standards=todayDrinks.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}
-    var custom by remember{mutableStateOf(false)}
-    val refreshing=status.startsWith("Synchronisation")
-    PullToRefreshBox(isRefreshing=refreshing,onRefresh=onSync,modifier=Modifier.fillMaxSize()){
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())){
-        PageHeader("Repère quotidien","Ce soir")
-        Card(Modifier.padding(horizontal=20.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=PineDark),shape=RoundedCornerShape(28.dp)){
-            Column(Modifier.padding(24.dp)){
-                Text("AUJOURD’HUI",color=Mint.copy(alpha=.75f),style=MaterialTheme.typography.labelSmall,fontWeight=FontWeight.Bold)
-                Text(String.format(Locale.CANADA_FRENCH,"%.1f",standards),color=Color.White,style=MaterialTheme.typography.displayMedium,fontWeight=FontWeight.Black)
-                Text("standard${if(standards>=2)"s" else ""} canadien${if(standards>=2)"s" else ""}",color=Mint)
-                Spacer(Modifier.height(18.dp));HorizontalDivider(color=Mint.copy(alpha=.25f))
-                Row(Modifier.padding(top=14.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(9.dp).background(if(status.startsWith("À jour"))Mint else Amber,RoundedCornerShape(9.dp)))
-                    Spacer(Modifier.width(8.dp));Text(status,color=Color.White,style=MaterialTheme.typography.bodySmall)}
+private fun MaintenantScreen(
+    context:Context,
+    drinks:List<DrinkEntity>, presets:List<PresetEntity>, status:String, openCheckIn:Boolean, onSync:()->Unit,
+    onCustom:(String,Double,Double,Int,String,Int)->Unit,
+    onEdit:(String,String,Double,Double,Int,String,Int)->Unit, onDelete:(String)->Unit,
+) {
+    var day by remember { mutableStateOf(LocalDate.now()) }
+    val isToday = day == LocalDate.now()
+    val dayKey = day.toString()
+    val dayDrinks = drinks.filter { it.startedAt.take(10) == dayKey }.sortedBy { it.startedAt }
+    val standards = dayDrinks.sumOf { canadianStandards(it.volumeMl, it.abvPercent, it.quantity) }
+    var editing by remember { mutableStateOf<DrinkEntity?>(null) }
+    var creatingFrom by remember { mutableStateOf<PresetEntity?>(null) }
+    var creatingBlank by remember { mutableStateOf(false) }
+    var checkIn by remember { mutableStateOf(false) }
+    var dayMessage by remember { mutableStateOf<String?>(null) }
+    var soberSuccess by remember { mutableStateOf(false) }
+    var dayStatus by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val refreshing = status.startsWith("Synchronisation")
+    LaunchedEffect(dayKey) { dayMessage = null }
+    LaunchedEffect(openCheckIn) { if (openCheckIn) checkIn = true }
+    LaunchedEffect(dayKey, dayDrinks.size) {
+        dayStatus = if (dayDrinks.isEmpty())
+            runCatching { Net.array(context, "/api/days?start=$dayKey&end=$dayKey") }.getOrNull()
+                ?.let { if (it.length() > 0) it.getJSONObject(0).optString("status") else null }
+        else null
+    }
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = onSync, modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { day = day.minusDays(1) }) { Icon(Icons.Filled.ChevronLeft, "Jour précédent") }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        if (isToday) "Aujourd’hui" else day.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.CANADA_FRENCH).replaceFirstChar { it.uppercase() },
+                        fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(day.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.CANADA_FRENCH)), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .65f))
+                }
+                IconButton(onClick = { day = day.plusDays(1) }, enabled = !isToday) { Icon(Icons.Filled.ChevronRight, "Jour suivant") }
             }
+            Card(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = PineDark), shape = RoundedCornerShape(28.dp)) {
+                Column(Modifier.padding(24.dp)) {
+                    Text(if (isToday) "AUJOURD’HUI" else dayKey, color = Mint.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Text(String.format(Locale.CANADA_FRENCH, "%.1f", standards), color = Color.White, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
+                    Text("standard${if (standards >= 2) "s" else ""} canadien${if (standards >= 2) "s" else ""}", color = Mint)
+                    if (isToday) {
+                        Spacer(Modifier.height(14.dp)); HorizontalDivider(color = Mint.copy(alpha = .25f))
+                        Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(9.dp).background(if (status.startsWith("À jour")) Mint else Amber, RoundedCornerShape(9.dp)))
+                            Spacer(Modifier.width(8.dp)); Text(status, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            if (isToday) BacCard(context)
+            LastCheckInCard(context)
+            OutlinedButton(onClick = { checkIn = true }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()) {
+                Icon(Icons.AutoMirrored.Filled.Assignment, null); Spacer(Modifier.width(8.dp)); Text("Faire un check-in")
+            }
+            Text("Ajouter rapidement", Modifier.padding(start = 20.dp, top = 8.dp, bottom = 10.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (presets.isEmpty()) Text("Connecte-toi une première fois pour télécharger tes favoris.", Modifier.padding(horizontal = 20.dp), color = Pine.copy(alpha = .65f))
+            else LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(presets) { preset ->
+                    ElevatedCard(onClick = { creatingFrom = preset }, modifier = Modifier.width(160.dp), shape = RoundedCornerShape(20.dp)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text("＋", color = Pine, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Light)
+                            Spacer(Modifier.height(12.dp))
+                            Text(preset.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text("${preset.volumeMl.toInt()} ml · ${preset.abvPercent}%", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .65f))
+                        }
+                    }
+                }
+            }
+            OutlinedButton(onClick = { creatingBlank = true }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth()) { Text("Personnaliser une consommation") }
+            Text("Consommations", Modifier.padding(start = 20.dp, top = 20.dp, bottom = 8.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (dayDrinks.isEmpty()) {
+                if (dayStatus == "sober") {
+                    Text("Journée marquée sobre.", Modifier.padding(horizontal = 20.dp), color = Pine)
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                runCatching { Net.send(context, "/api/days/sober/$dayKey", JSONObject(), "DELETE") }
+                                    .onSuccess { dayStatus = null; dayMessage = "Journée sobre annulée" }
+                                    .onFailure { dayMessage = it.message ?: "Impossible d’annuler" }
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth(),
+                    ) { Text("Annuler la journée sobre") }
+                } else {
+                    Text("Aucune consommation ce jour.", Modifier.padding(horizontal = 20.dp), color = Pine.copy(alpha = .65f))
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                runCatching { Net.send(context, "/api/days/sober", JSONObject().put("date", dayKey)) }
+                                    .onSuccess { soberSuccess = true; dayStatus = "sober" }
+                                    .onFailure { dayMessage = it.message ?: "Impossible d’enregistrer" }
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth(),
+                    ) { Text("Marquer cette journée sobre") }
+                }
+            }
+            dayMessage?.let { Text(it, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), color = Pine.copy(alpha = .72f)) }
+            dayDrinks.forEach { d -> DrinkRow(d, onEdit = { editing = d }, onDelete = { onDelete(d.clientId) }) }
+            Spacer(Modifier.height(28.dp))
         }
-        Text("Ajouter rapidement",Modifier.padding(start=20.dp,top=26.dp,bottom=10.dp),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
-        if(presets.isEmpty()) Text("Connecte-toi une première fois pour télécharger tes favoris.",Modifier.padding(horizontal=20.dp),color=Pine.copy(alpha=.65f))
-        else LazyRow(contentPadding=PaddingValues(horizontal=20.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)){items(presets){preset ->
-            ElevatedCard(onClick={onAdd(preset)},modifier=Modifier.width(156.dp),shape=RoundedCornerShape(20.dp)){Column(Modifier.padding(16.dp)){
-                Text("＋",color=Pine,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Light);Spacer(Modifier.height(12.dp));Text(preset.name,fontWeight=FontWeight.Bold,maxLines=2)
-                Text("${preset.volumeMl.toInt()} ml · ${preset.abvPercent}%",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}}
-        }}
-        OutlinedButton(onClick={custom=true},modifier=Modifier.padding(horizontal=20.dp,vertical=12.dp).fillMaxWidth()){Text("Personnaliser une consommation")}
-        Text("Entrées du jour",Modifier.padding(start=20.dp,top=26.dp,bottom=8.dp),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
-        if(todayDrinks.isEmpty()) Text("Aucune consommation saisie. La journée reste ouverte.",Modifier.padding(horizontal=20.dp),color=Pine.copy(alpha=.65f))
-        todayDrinks.forEach{DrinkRow(it)};Spacer(Modifier.height(24.dp))
     }
+    val prefill = creatingFrom
+    if (creatingBlank) DrinkEditorDialog(day, null, onDismiss = { creatingBlank = false }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingBlank = false }
+    if (prefill != null) DrinkEditorDialog(day, null, prefillName = prefill.name, prefillVolume = prefill.volumeMl.toInt(), prefillAbv = prefill.abvPercent, onDismiss = { creatingFrom = null }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingFrom = null }
+    editing?.let { d -> DrinkEditorDialog(day, d, onDismiss = { editing = null }) { n, v, a, q, started, dur -> onEdit(d.clientId, n, v, a, q, started, dur); editing = null } }
+    if (checkIn) CheckInDialog(day, onDismiss = { checkIn = false }) { payload ->
+        scope.launch { runCatching { Net.send(context, "/api/check-ins", payload) }.onFailure { dayMessage = it.message ?: "Check-in non envoyé" }.onSuccess { dayMessage = "Check-in enregistré" } }
+        checkIn = false
     }
-    if(custom)CustomDrinkDialog(onDismiss={custom=false}){name,volume,abv,quantity -> onCustom(name,volume,abv,quantity);custom=false}
+    if (soberSuccess) AlertDialog(
+        onDismissRequest = { soberSuccess = false },
+        confirmButton = { TextButton(onClick = { soberSuccess = false }) { Text("Continuer") } },
+        icon = { Text("🎉", style = MaterialTheme.typography.displaySmall) },
+        title = { Text("Journée sobre enregistrée") },
+        text = { Text("Bien joué. Cette journée est maintenant comptée comme une journée sans alcool.") },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DrinkEditorDialog(
+    day:LocalDate,
+    existing:DrinkEntity?,
+    prefillName:String="Consommation", prefillVolume:Int=333, prefillAbv:Double=5.0,
+    onDismiss:()->Unit,
+    onSave:(String,Double,Double,Int,String,Int)->Unit,
+) {
+    var name by remember{mutableStateOf(existing?.name ?: prefillName)}
+    var volume by remember{mutableStateOf((existing?.volumeMl?.toInt() ?: prefillVolume).toString())}
+    var abv by remember{mutableStateOf((existing?.abvPercent ?: prefillAbv).toString())}
+    var quantity by remember{mutableStateOf((existing?.quantity ?: 1).toString())}
+    var duration by remember{mutableStateOf((existing?.durationMinutes ?: 30).toString())}
+    val initialTime = remember { runCatching { OffsetDateTime.parse(existing?.startedAt).toLocalTime() }.getOrDefault(java.time.LocalTime.now().withSecond(0).withNano(0)) }
+    var time by remember { mutableStateOf(initialTime) }
+    var pickTime by remember { mutableStateOf(false) }
+    val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+    AlertDialog(onDismissRequest=onDismiss,title={Text(if(existing==null)"Nouvelle consommation" else "Modifier la consommation")},text={
+        Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            OutlinedTextField(name,{name=it},label={Text("Nom")},singleLine=true)
+            OutlinedTextField(volume,{volume=it.filter(Char::isDigit)},label={Text("Volume (ml)")},singleLine=true,keyboardOptions=numeric)
+            OutlinedTextField(abv,{abv=it.filter{c->c.isDigit()||c=='.'||c==','}},label={Text("Alcool (%)")},singleLine=true,keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal))
+            OutlinedTextField(quantity,{quantity=it.filter(Char::isDigit)},label={Text("Quantité")},singleLine=true,keyboardOptions=numeric)
+            OutlinedTextField(time.format(DateTimeFormatter.ofPattern("HH:mm")),{},readOnly=true,label={Text("Heure de début")},modifier=Modifier.fillMaxWidth(),trailingIcon={TextButton(onClick={pickTime=true}){Text("Choisir")}})
+            OutlinedTextField(duration,{duration=it.filter(Char::isDigit)},label={Text("Durée (minutes)")},singleLine=true,keyboardOptions=numeric)
+        }
+    },confirmButton={TextButton(onClick={
+        val started=day.atTime(time).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
+        onSave(name,volume.toDoubleOrNull()?:333.0,abv.replace(',','.').toDoubleOrNull()?:5.0,quantity.toIntOrNull()?.coerceAtLeast(1)?:1,started,duration.toIntOrNull()?.coerceAtLeast(0)?:30)
+    }){Text(if(existing==null)"Ajouter" else "Enregistrer")}},dismissButton={TextButton(onClick=onDismiss){Text("Annuler")}})
+    if (pickTime) {
+        val state = rememberTimePickerState(initialHour = time.hour, initialMinute = time.minute, is24Hour = true)
+        AlertDialog(onDismissRequest={pickTime=false},confirmButton={TextButton(onClick={time=java.time.LocalTime.of(state.hour,state.minute);pickTime=false}){Text("OK")}},dismissButton={TextButton(onClick={pickTime=false}){Text("Annuler")}},text={TimePicker(state=state)})
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BodyMetricsSection(context:Context) {
+    var sex by remember { mutableStateOf("unspecified") }
+    var sexOpen by remember { mutableStateOf(false) }
+    var weight by remember { mutableStateOf("") }
+    var height by remember { mutableStateOf("") }
+    var ratio by remember { mutableStateOf<Double?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        runCatching { Net.json(context, "/api/auth/me") }.onSuccess {
+            sex = it.optString("sex", "unspecified").ifBlank { "unspecified" }
+            weight = if (it.isNull("weight_kg")) "" else it.optDouble("weight_kg").toInt().toString()
+            height = if (it.isNull("height_cm")) "" else it.optDouble("height_cm").toInt().toString()
+            ratio = if (it.isNull("effective_distribution_ratio")) it.doubleOrNull("distribution_ratio") else it.optDouble("effective_distribution_ratio")
+        }
+    }
+    val sexLabel = mapOf("unspecified" to "Non précisé", "female" to "Femme", "male" to "Homme")
+    val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+    Text("Alcoolémie — profil corporel", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+    Text("Sexe, poids et grandeur servent au calcul du taux d’alcoolémie (formule de Watson).", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .65f))
+    Box {
+        OutlinedTextField(sexLabel[sex] ?: sex, {}, readOnly = true, label = { Text("Sexe") }, modifier = Modifier.fillMaxWidth(), trailingIcon = { TextButton(onClick = { sexOpen = true }) { Text("Changer") } })
+        DropdownMenu(expanded = sexOpen, onDismissRequest = { sexOpen = false }) {
+            sexLabel.forEach { (v, l) -> DropdownMenuItem(text = { Text(l) }, onClick = { sex = v; sexOpen = false }) }
+        }
+    }
+    OutlinedTextField(weight, { weight = it.filter(Char::isDigit) }, label = { Text("Poids (kg)") }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(height, { height = it.filter(Char::isDigit) }, label = { Text("Grandeur (cm)") }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
+    ratio?.let { Text("Facteur de distribution calculé : ${String.format(Locale.CANADA_FRENCH, "%.3f", it)}", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .7f)) }
+    Button(onClick = {
+        scope.launch {
+            val body = JSONObject().put("sex", sex)
+            weight.toDoubleOrNull()?.let { body.put("weight_kg", it) }
+            height.toDoubleOrNull()?.let { body.put("height_cm", it) }
+            runCatching { Net.send(context, "/api/settings", body, "PATCH") }
+                .onSuccess { ratio = it.doubleOrNull("distribution_ratio") ?: ratio; message = "Profil enregistré" }
+                .onFailure { message = it.message ?: "Enregistrement impossible" }
+        }
+    }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil") }
+    message?.let { Text(it, color = Pine.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable
-private fun CustomDrinkDialog(onDismiss:()->Unit,onSave:(String,Double,Double,Int)->Unit) {
-    var name by remember{mutableStateOf("Consommation")};var volume by remember{mutableStateOf("341")};var abv by remember{mutableStateOf("5")};var quantity by remember{mutableStateOf("1")}
-    AlertDialog(onDismissRequest=onDismiss,title={Text("Consommation personnalisée")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-        OutlinedTextField(name,{name=it},label={Text("Nom")},singleLine=true)
-        OutlinedTextField(volume,{volume=it.filter{c->c.isDigit()}},label={Text("Volume (ml)")},singleLine=true)
-        OutlinedTextField(abv,{abv=it.filter{c->c.isDigit()||c=='.'||c==','}},label={Text("Alcool (%)")},singleLine=true)
-        OutlinedTextField(quantity,{quantity=it.filter(Char::isDigit)},label={Text("Quantité")},singleLine=true)
-    }},confirmButton={TextButton(onClick={onSave(name,volume.toDoubleOrNull()?:341.0,abv.replace(',','.').toDoubleOrNull()?:5.0,quantity.toIntOrNull()?.coerceAtLeast(1)?:1)}){Text("Ajouter")}},dismissButton={TextButton(onClick=onDismiss){Text("Annuler")}})
+private fun BacCard(context:Context) {
+    var bac by remember { mutableStateOf<JSONObject?>(null) }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) { runCatching { Net.json(context, "/api/bac") }.onSuccess { bac = it } }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
+    val data = bac ?: return
+    val current = data.optDouble("current_bac_percent", 0.0) * 100
+    val peak = data.optDouble("peak_bac_percent", 0.0) * 100
+    val zeroAt = if (data.isNull("estimated_zero_at")) null else data.optString("estimated_zero_at")
+    Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(20.dp)) {
+            Text("ALCOOLÉMIE ESTIMÉE", style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .6f), fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(String.format(Locale.CANADA_FRENCH, "%.2f", current), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black, color = Pine)
+                Spacer(Modifier.width(6.dp)); Text("g/L", color = Pine.copy(alpha = .6f), modifier = Modifier.padding(bottom = 6.dp))
+            }
+            Text(
+                when {
+                    data.optBoolean("already_zero") -> "À zéro"
+                    else -> "Tendance : ${data.optString("trend")} · pic ${String.format(Locale.CANADA_FRENCH, "%.2f", peak)} g/L" +
+                        (zeroAt?.let { " · retour à 0 vers ${runCatching { OffsetDateTime.parse(it).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault("")}" } ?: "")
+                },
+                style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .72f),
+            )
+            Text(
+                "Estimation mathématique — jamais un indicateur de capacité à conduire.",
+                Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall, color = Amber,
+            )
+        }
+    }
 }
 
 @Composable
-private fun DrinkRow(drink:DrinkEntity,onDelete:(()->Unit)?=null) {
-    Row(Modifier.padding(horizontal=20.dp,vertical=6.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(18.dp)).padding(16.dp),verticalAlignment=Alignment.CenterVertically){
+private fun LastCheckInCard(context:Context) {
+    var last by remember { mutableStateOf<JSONObject?>(null) }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) { runCatching { Net.array(context, "/api/check-ins") }.onSuccess { if (it.length() > 0) last = it.getJSONObject(0) } }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
+    val c = last ?: return
+    val standards = if (c.isNull("planned_grams")) null else c.optDouble("planned_grams") / 13.45
+    Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Mint), shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.padding(20.dp)) {
+            Text("DERNIER CHECK-IN", style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .65f), fontWeight = FontWeight.Bold)
+            Text(
+                runCatching { OffsetDateTime.parse(c.optString("observed_at_utc")).atZoneSameInstant(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM · HH:mm", Locale.CANADA_FRENCH)) }.getOrDefault(c.optString("local_date")),
+                fontWeight = FontWeight.Bold, color = Pine,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text("Envie ${c.optInt("craving")}/10 · confiance ${c.optInt("confidence")}/10" + (if (!c.isNull("stress")) " · stress ${c.optInt("stress")}/10" else ""), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .8f))
+            if (standards != null) Text("Objectif du jour : ${String.format(Locale.CANADA_FRENCH, "%.1f", standards)} conso standard", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .8f))
+            if (c.optBoolean("post_onset")) Text("Rempli après la première consommation", style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .6f))
+        }
+    }
+}
+
+@Composable
+private fun DrinkRow(drink:DrinkEntity,onEdit:(()->Unit)?=null,onDelete:(()->Unit)?=null) {
+    Row(Modifier.padding(horizontal=20.dp,vertical=6.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(18.dp)).padding(start=16.dp,top=8.dp,bottom=8.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){
         Box(Modifier.size(42.dp).background(if(drink.dirty)Color(0xFFFFE8C2) else Mint,RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center){Text(if(drink.dirty)"↥" else "✓",fontWeight=FontWeight.Bold,color=Pine)}
-        Column(Modifier.padding(start=12.dp).weight(1f)){Text(drink.name,fontWeight=FontWeight.Bold);Text("${drink.volumeMl.toInt()} ml · ${drink.abvPercent}% · ×${drink.quantity}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
-        if(onDelete==null)Text(runCatching{OffsetDateTime.parse(drink.startedAt).format(DateTimeFormatter.ofPattern("HH:mm"))}.getOrDefault(""),style=MaterialTheme.typography.labelMedium)
-        else TextButton(onClick=onDelete){Text("Retirer")}
+        Column(Modifier.padding(start=12.dp).weight(1f)){Text(drink.name,fontWeight=FontWeight.Bold)
+            Text("${runCatching{OffsetDateTime.parse(drink.startedAt).format(DateTimeFormatter.ofPattern("HH:mm"))}.getOrDefault("")} · ${drink.volumeMl.toInt()} ml · ${drink.abvPercent}% · ×${drink.quantity}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
+        if(onEdit!=null)IconButton(onClick=onEdit){Icon(Icons.Filled.Edit,"Modifier",tint=Pine)}
+        if(onDelete!=null)IconButton(onClick=onDelete){Icon(Icons.Filled.Delete,"Supprimer",tint=Pine.copy(alpha=.7f))}
     }
 }
 
@@ -188,7 +442,7 @@ private fun DrinkRow(drink:DrinkEntity,onDelete:(()->Unit)?=null) {
 private fun HistoryScreen(drinks:List<DrinkEntity>,onDelete:(String)->Unit) {
     Column(Modifier.fillMaxSize()){PageHeader("Copie locale","Historique")
         if(drinks.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("L’historique apparaîtra après la première synchronisation.",Modifier.padding(30.dp),color=Pine.copy(alpha=.65f))}
-        else LazyColumn(contentPadding=PaddingValues(bottom=24.dp)){items(drinks,key={it.clientId}){DrinkRow(it){onDelete(it.clientId)}}}}
+        else LazyColumn(contentPadding=PaddingValues(bottom=24.dp)){items(drinks,key={it.clientId}){DrinkRow(it,onDelete={onDelete(it.clientId)})}}}
 }
 
 @Composable
@@ -225,17 +479,25 @@ private fun HealthScreen(context:Context,server:String,token:String) {
             val label=mapOf("sleep" to "Sommeil","steps" to "Pas","exercise" to "Exercice","heart_rate" to "Fréquence cardiaque","resting_heart_rate" to "Fréquence au repos","hrv_rmssd" to "Variabilité cardiaque")[type]?:type
             Row(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(16.dp)).padding(16.dp),verticalAlignment=Alignment.CenterVertically){Text(label,Modifier.weight(1f));Text(if(permission in granted)"Autorisé" else "Non partagé",color=if(permission in granted)Pine else Pine.copy(alpha=.5f),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.labelMedium)}
         }
-        Button(onClick={launcher.launch(HealthConnectBridge.granularPermissions.values.toSet())},enabled=bridge.available(),modifier=Modifier.padding(horizontal=20.dp,vertical=14.dp).fillMaxWidth()){Text("Choisir les autorisations")}
+        Button(onClick={launcher.launch(HealthConnectBridge.granularPermissions.values.toSet()+HealthConnectBridge.HISTORY_PERMISSION)},enabled=bridge.available(),modifier=Modifier.padding(horizontal=20.dp,vertical=14.dp).fillMaxWidth()){Text("Choisir les autorisations")}
         if(bridge.backgroundAvailable())Row(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(16.dp)).padding(16.dp),verticalAlignment=Alignment.CenterVertically){
             Column(Modifier.weight(1f)){Text("Synchronisation automatique",fontWeight=FontWeight.Bold);Text("Résumés récents, environ deux fois par jour",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
             Switch(checked=backgroundGranted,onCheckedChange={enabled -> if(enabled)backgroundLauncher.launch(setOf(HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)) else {backgroundGranted=false;HealthConnectWorker.disable(context);message="Synchronisation automatique désactivée."}})
         }
+        var range by remember{mutableIntStateOf(14)}
+        var importing by remember{mutableStateOf(false)}
+        Text("Période à importer",Modifier.padding(start=20.dp,top=8.dp),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.labelLarge)
+        LazyRow(contentPadding=PaddingValues(horizontal=20.dp,vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            items(listOf(14,30,90,180,365)){d -> FilterChip(selected=range==d,onClick={range=d},label={Text(if(d>=365)"1 an" else "$d j")})}
+        }
+        Text("Au-delà de 30 jours, Health Connect exige l’autorisation « historique » (demandée avec les autres).",Modifier.padding(horizontal=20.dp),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.6f))
         OutlinedButton(onClick={scope.launch{
-            message="Lecture des 14 derniers jours…"
-            runCatching{val all=JSONArray();repeat(14){index -> val day=bridge.aggregateDay(LocalDate.now().minusDays(index.toLong()));for(i in 0 until day.length())all.put(day.getJSONObject(i))}
+            importing=true;message="Lecture des $range derniers jours…"
+            runCatching{val all=JSONArray();repeat(range){index -> val day=bridge.aggregateDay(LocalDate.now().minusDays(index.toLong()));for(i in 0 until day.length())all.put(day.getJSONObject(i))}
                 val stored=local.store(all);if(credentials.syncEnabled()&&token.isNotBlank()){val(pending,ids)=local.pending();if(pending.length()>0){Api.postArray(server,token,"/api/health-connect/aggregates",pending);local.markSynced(ids)}};stored}
                 .onSuccess{message="$it résumé(s) conservé(s) localement${if(credentials.syncEnabled())" et synchronisé(s)" else ""}."}.onFailure{message=it.message?:"Import impossible"}
-        }},enabled=bridge.available()&&granted.isNotEmpty(),modifier=Modifier.padding(horizontal=20.dp).fillMaxWidth()){Text("Importer les 14 derniers jours")}
+            importing=false
+        }},enabled=bridge.available()&&granted.isNotEmpty()&&!importing,modifier=Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth()){Text(if(importing)"Import en cours…" else "Importer")}
         Text(message,Modifier.padding(20.dp),color=Pine.copy(alpha=.72f))
     }
 }
@@ -243,6 +505,12 @@ private fun HealthScreen(context:Context,server:String,token:String) {
 @Composable
 private fun SettingsScreen(context:Context,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit) {
     val credentials=remember{CredentialStore(context)};var message by remember{mutableStateOf(status)};val scope=rememberCoroutineScope()
+    var reminderOn by remember{mutableStateOf(CheckInReminder.isEnabled(context))}
+    val notifPermission=rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()){granted ->
+        reminderOn=granted;CheckInReminder.setEnabled(context,granted)
+        if(granted)scope.launch{CheckInReminder.refreshAndSchedule(context)}
+        message=if(granted)"Rappel de check-in activé" else "Autorisation de notification refusée"
+    }
     fun syncToWatch(currentToken:String)=scope.launch{val request=PutDataMapRequest.create("/repere/config").apply{dataMap.putString("server",server.trimEnd('/'));dataMap.putString("token",currentToken);dataMap.putLong("updated",System.currentTimeMillis())}.asPutDataRequest().setUrgent();runCatching{Wearable.getDataClient(context).putDataItem(request).await()}}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())){PageHeader("Téléphone et montre","Réglages")
         Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
@@ -260,7 +528,20 @@ private fun SettingsScreen(context:Context,server:String,onServer:(String)->Unit
             }
             Text(message,color=Pine.copy(alpha=.72f))
             HorizontalDivider(Modifier.padding(vertical=6.dp))
+            HorizontalDivider(Modifier.padding(vertical=6.dp))
+            BodyMetricsSection(context)
+            HorizontalDivider(Modifier.padding(vertical=6.dp))
             Text("Application",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                Column(Modifier.weight(1f)){Text("Rappel de check-in",fontWeight=FontWeight.Bold)
+                    Text("1 h 30 avant ton heure habituelle de consommation",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
+                Switch(checked=reminderOn,onCheckedChange={want ->
+                    if(!want){reminderOn=false;CheckInReminder.setEnabled(context,false);message="Rappel de check-in désactivé"}
+                    else if(android.os.Build.VERSION.SDK_INT>=33 && androidx.core.content.ContextCompat.checkSelfPermission(context,android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+                        notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }else{reminderOn=true;CheckInReminder.setEnabled(context,true);scope.launch{CheckInReminder.refreshAndSchedule(context)};message="Rappel de check-in activé"}
+                })
+            }
             OutlinedButton(onClick=onOpenHealth,modifier=Modifier.fillMaxWidth()){Text("Données de santé (Health Connect)")}
             OutlinedButton(onClick=onOpenHistory,modifier=Modifier.fillMaxWidth()){Text("Historique complet")}
             Spacer(Modifier.height(20.dp))

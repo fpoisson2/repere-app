@@ -16,6 +16,7 @@ class QuickDrinkComplicationService : SuspendingComplicationDataSourceService() 
         build(type, active = false, startedAtMillis = 0L, todayStandard = 2.0)
 
     override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData {
+        StateCache.refresh(this)
         val prefs = getSharedPreferences("repere", MODE_PRIVATE)
         return build(
             request.complicationType,
@@ -43,7 +44,6 @@ class QuickDrinkComplicationService : SuspendingComplicationDataSourceService() 
             if (active) "Répère : consommation en cours" else "Répère : consommations standard aujourd'hui",
         ).build()
         val text: ComplicationText = if (active && startedAtMillis > 0L) {
-            // Stopwatch style ticks up as h:mm:ss / m:ss while the watch face is interactive.
             TimeDifferenceComplicationText.Builder(
                 TimeDifferenceStyle.STOPWATCH,
                 CountUpTimeReference(Instant.ofEpochMilli(startedAtMillis)),

@@ -23,6 +23,7 @@ import java.time.ZoneId
 /** Reads only granted types and emits daily aggregates; missing values stay absent. */
 class HealthConnectBridge(private val context: Context) {
     companion object {
+        const val HISTORY_PERMISSION = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY
         val granularPermissions = mapOf(
             "sleep" to HealthPermission.getReadPermission(SleepSessionRecord::class),
             "hrv_rmssd" to HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class),
@@ -55,15 +56,17 @@ class HealthConnectBridge(private val context: Context) {
             add("steps",result[StepsRecord.COUNT_TOTAL]?.toDouble(),"count","health_connect",1,1440,"health_connect_aggregate")
         }
         if(granularPermissions["sleep"] in granted) {
+            // Health Connect's own daily aggregate: total time asleep within the window, clipped to
+            // the day and de-duplicated across origins. Naps and the night both count toward the sum.
+            val total=client.aggregate(AggregateRequest(setOf(SleepSessionRecord.SLEEP_DURATION_TOTAL),filter))[SleepSessionRecord.SLEEP_DURATION_TOTAL]
             val rows=client.readRecords(ReadRecordsRequest(SleepSessionRecord::class,filter)).records
-            add("sleep",rows.takeIf{it.isNotEmpty()}?.sumOf{Duration.between(it.startTime,it.endTime).toMinutes()}?.toDouble(),"minutes",
-                rows.firstOrNull()?.metadata?.dataOrigin?.packageName ?: "health_connect",rows.size,
-                rows.sumOf{Duration.between(it.startTime,it.endTime).toMinutes()},"interval_sum")
+            add("sleep",total?.toMinutes()?.toDouble()?.takeIf{it>0},"minutes",
+                rows.firstOrNull()?.metadata?.dataOrigin?.packageName ?: "health_connect",rows.size,total?.toMinutes() ?: 0L,"health_connect_aggregate")
         }
         if(granularPermissions["exercise"] in granted) {
+            val total=client.aggregate(AggregateRequest(setOf(ExerciseSessionRecord.EXERCISE_DURATION_TOTAL),filter))[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]
             val rows=client.readRecords(ReadRecordsRequest(ExerciseSessionRecord::class,filter)).records
-            val minutes=rows.sumOf{Duration.between(it.startTime,it.endTime).toMinutes()}
-            add("exercise",minutes.toDouble().takeIf{rows.isNotEmpty()},"minutes",rows.firstOrNull()?.metadata?.dataOrigin?.packageName ?: "health_connect",rows.size,minutes,"interval_sum")
+            add("exercise",total?.toMinutes()?.toDouble()?.takeIf{it>0},"minutes",rows.firstOrNull()?.metadata?.dataOrigin?.packageName ?: "health_connect",rows.size,total?.toMinutes() ?: 0L,"health_connect_aggregate")
         }
         if(granularPermissions["hrv_rmssd"] in granted) {
             val rows=client.readRecords(ReadRecordsRequest(HeartRateVariabilityRmssdRecord::class,filter)).records

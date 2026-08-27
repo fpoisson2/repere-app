@@ -9,9 +9,14 @@
         <service android:name=".ConfigListenerService" android:exported="true">
             <intent-filter><action android:name="com.google.android.gms.wearable.DATA_CHANGED"/><data android:scheme="wear" android:host="*" android:pathPrefix="/repere/config"/></intent-filter>
         </service>
-        <service android:name=".QuickDrinkComplicationService" android:exported="true" android:icon="@drawable/ic_drink" android:label="Répère" android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+        <service android:name=".QuickDrinkComplicationService" android:exported="true" android:icon="@drawable/ic_drink" android:label="Répère · consommations" android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
             <intent-filter><action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST"/></intent-filter>
             <meta-data android:name="android.support.wearable.complications.SUPPORTED_TYPES" android:value="SHORT_TEXT,MONOCHROMATIC_IMAGE"/>
+            <meta-data android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS" android:value="300"/>
+        </service>
+        <service android:name=".BacComplicationService" android:exported="true" android:icon="@drawable/ic_bac" android:label="Répère · alcoolémie" android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter><action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST"/></intent-filter>
+            <meta-data android:name="android.support.wearable.complications.SUPPORTED_TYPES" android:value="SHORT_TEXT,RANGED_VALUE,MONOCHROMATIC_IMAGE"/>
             <meta-data android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS" android:value="300"/>
         </service>
     </application>

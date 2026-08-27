@@ -15,7 +15,7 @@ from .auth import current_user, hash_password, verify_password, wear_user
 from .db import Base, engine, get_db
 from .models import AiInsight, DailyPlan, Drink, EmaCheckIn, Goal, GoalAchievement, HealthDailyAggregate, ImportBatch, Preset, SyncEvent, SyncMutation, TrackedDay, User, WearPairingCode, WearToken
 from .schemas import DrinkIn, DrinkOut, Login, SettingsPatch
-from .services import (aggregate_periods, alcohol, bac_at, bac_projection, compare_series,
+from .services import (aggregate_periods, alcohol, bac_at, bac_projection, body_r, compare_series,
  daily_series, import_csv, key_for, pearson, period_stats, reduction_records, sessions, spearman, temporal_stats)
 from .settings import settings
 from .longitudinal import router as longitudinal_router
@@ -29,7 +29,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=[x.strip() for x in sett
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, https_only=settings.secure_cookies,
                    same_site="lax", max_age=60*60*24*30)
 
-DEFAULT_PRESETS=[("Bière 341 ml","bière",341,5),("Bière 473 ml","bière",473,5),("IPA 473 ml","bière",473,6.5),
+DEFAULT_PRESETS=[("Bière 333 ml","bière",333,5),("Bière 473 ml","bière",473,5),("IPA 473 ml","bière",473,6.5),
  ("Vin 150 ml","vin",150,12),("Bouteille de vin","vin",750,13),("Spiritueux 43 ml","spiritueux",43,40)]
 
 def local_and_utc(value:datetime, timezone_id:str|None=None)->tuple[datetime,datetime]:
@@ -85,14 +85,16 @@ def change_password(payload:dict,request:Request,u:User=Depends(current_user),db
     u.password_hash=hash_password(new);u.session_version+=1;db.commit();request.session.clear()
 
 @app.get("/api/auth/me")
-def me(u:User=Depends(current_user)): return {"id":u.id,"username":u.username,"tracking_start_date":u.tracking_start_date,"day_start_hour":u.day_start_hour,"weight_kg":u.weight_kg,"distribution_ratio":u.distribution_ratio,"elimination_rate":u.elimination_rate,"session_gap_hours":u.session_gap_hours}
+def me(u:User=Depends(current_user)): return {"id":u.id,"username":u.username,"tracking_start_date":u.tracking_start_date,"day_start_hour":u.day_start_hour,"weight_kg":u.weight_kg,"height_cm":u.height_cm,"sex":u.sex,"distribution_ratio":u.distribution_ratio,"effective_distribution_ratio":round(body_r(u),3),"elimination_rate":u.elimination_rate,"session_gap_hours":u.session_gap_hours}
 
 @app.patch("/api/settings")
 def patch_settings(data:SettingsPatch,u:User=Depends(current_user),db:Session=Depends(get_db)):
     changes=data.model_dump(exclude_unset=True)
     if "tracking_start_date" in changes: u.tracking_start_explicit=True
     for k,v in changes.items(): setattr(u,k,v)
-    db.commit(); return changes
+    # Keep the stored Widmark factor in sync with sex / height / weight so every BAC estimate uses it.
+    if {"sex","height_cm","weight_kg"} & changes.keys(): u.distribution_ratio=round(body_r(u),3)
+    db.commit(); return {**changes,"distribution_ratio":u.distribution_ratio}
 
 def wear_drink_out(d:Drink):
     return {"id":d.id,"drink_name":d.drink_name,"volume_ml":d.volume_ml,"abv_percent":d.abv_percent,
@@ -156,7 +158,11 @@ def wear_state(now:str|None=None,u:User=Depends(wear_user),db:Session=Depends(ge
         except Exception:pass
     today=(ref-timedelta(hours=u.day_start_hour)).date()
     today_standard=db.scalar(select(func.coalesce(func.sum(Drink.canadian_standard_drinks),0.0)).where(Drink.user_id==u.id,Drink.local_date==today))
-    return {"active":wear_drink_out(active) if active else None,"today_standard_drinks":round(float(today_standard or 0.0),1),"server_time":datetime.now()}
+    recent=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.started_at>=datetime.now()-timedelta(hours=36))).all()
+    projection=bac_projection(recent,u)
+    return {"active":wear_drink_out(active) if active else None,"today_standard_drinks":round(float(today_standard or 0.0),1),
+      "bac_g_per_l":round(projection["current_bac_percent"]*100,3),"bac_trend":projection["trend"],
+      "bac_zero_at":projection["estimated_zero_at"],"server_time":datetime.now()}
 
 @app.post("/api/wear/start",status_code=201)
 def wear_start(payload:dict,idempotency_key:str|None=Header(None,alias="Idempotency-Key"),u:User=Depends(wear_user),db:Session=Depends(get_db)):

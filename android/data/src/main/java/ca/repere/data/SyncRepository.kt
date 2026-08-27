@@ -23,11 +23,12 @@ class SyncRepository(context: Context) {
 
     fun observeDrinks():Flow<List<DrinkEntity>> = dao.observeDrinks()
     fun observePresets():Flow<List<PresetEntity>> = dao.observePresets()
+    suspend fun recentStartTimes():List<String> = dao.recentStartTimes()
 
     suspend fun ensureOfflineDefaults(){
         if(dao.presetCount()>0)return
         dao.putPresets(listOf(
-            PresetEntity(-1,"Bière 341 ml","bière",341.0,5.0),PresetEntity(-2,"Bière 473 ml","bière",473.0,5.0),
+            PresetEntity(-1,"Bière 333 ml","bière",333.0,5.0),PresetEntity(-2,"Bière 473 ml","bière",473.0,5.0),
             PresetEntity(-3,"Vin 150 ml","vin",150.0,12.0),PresetEntity(-4,"Spiritueux 43 ml","spiritueux",43.0,40.0)
         ))
     }
@@ -53,9 +54,15 @@ class SyncRepository(context: Context) {
             UUID.randomUUID().toString()))
     }
 
-    suspend fun createCustom(name:String,volumeMl:Double,abvPercent:Double,quantity:Int,startedAt:String) {
+    suspend fun createCustom(name:String,volumeMl:Double,abvPercent:Double,quantity:Int,startedAt:String,durationMinutes:Int=30) {
         createOffline(DrinkEntity(UUID.randomUUID().toString(),null,name,null,volumeMl,abvPercent,
-            quantity,startedAt,30,null,false,true,false,UUID.randomUUID().toString()))
+            quantity,startedAt,durationMinutes,null,false,true,false,UUID.randomUUID().toString()))
+    }
+
+    suspend fun updateOffline(clientId:String,name:String,volumeMl:Double,abvPercent:Double,quantity:Int,startedAt:String,durationMinutes:Int) {
+        val drink=dao.findByClientId(clientId) ?: return
+        dao.putDrink(drink.copy(name=name,volumeMl=volumeMl,abvPercent=abvPercent,quantity=quantity,
+            startedAt=startedAt,durationMinutes=durationMinutes,dirty=true,deleted=false,pendingMutationId=UUID.randomUUID().toString()))
     }
 
     suspend fun markDeleted(clientId: String) {

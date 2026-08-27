@@ -72,8 +72,9 @@ class MainActivity : ComponentActivity() {
             if (!active) {
                 Text("${volume} ml · ${"%.1f".format(abv)} %")
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Button(onClick = { volume = when(volume) { 341 -> 473; 473 -> 150; else -> 341 } }) { Text("ml") }
-                    Button(onClick = { abv = if (abv >= 40) 5f else abv + .5f }) { Text("%") }
+                    Button(onClick = { volume = when(volume) { 333 -> 473; 473 -> 150; else -> 333 } }) { Text("ml") }
+                    Button(onClick = { abv = (abv - .5f).coerceAtLeast(.5f) }) { Text("−%") }
+                    Button(onClick = { abv = (abv + .5f).coerceAtMost(70f) }) { Text("+%") }
                 }
             }
             Button(onClick = { toggle() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "…" else if (active) "Terminer" else "Démarrer") }

@@ -1,6 +1,7 @@
 package ca.repere.mobile
 
 import android.content.Context
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -11,11 +12,16 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -101,6 +107,111 @@ private fun StatRow(label: String, value: String) {
 private fun JSONObject.numOrNull(key: String): Double? =
     if (!has(key) || isNull(key)) null else optDouble(key)
 
+/* ---------- charts ---------- */
+
+@Composable
+private fun ChartFrame(topLabel: String, bottomStart: String, bottomEnd: String, content: @Composable () -> Unit) {
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            Text(topLabel, style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .6f))
+        }
+        content()
+        Row(Modifier.fillMaxWidth()) {
+            Text(bottomStart, style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .5f))
+            Spacer(Modifier.weight(1f))
+            Text(bottomEnd, style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .5f))
+        }
+    }
+}
+
+@Composable
+private fun BarChart(values: List<Double>, colors: List<Color>, threshold: Double? = null, modifier: Modifier = Modifier) {
+    val max = (values.maxOrNull() ?: 0.0).coerceAtLeast(threshold ?: 0.0).coerceAtLeast(0.01)
+    Canvas(modifier.fillMaxWidth().height(140.dp)) {
+        if (values.isEmpty()) return@Canvas
+        // horizontal gridlines at 0 / 50 / 100 %
+        listOf(0f, .5f, 1f).forEach { f ->
+            val y = size.height * (1 - f)
+            drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
+        }
+        val gap = 1.5f
+        val bw = (size.width - gap * (values.size - 1)) / values.size
+        values.forEachIndexed { i, v ->
+            val h = (v / max * size.height).toFloat()
+            drawRect(colors.getOrElse(i) { Pine }, Offset(i * (bw + gap), size.height - h),
+                androidx.compose.ui.geometry.Size(bw.coerceAtLeast(1f), h))
+        }
+        threshold?.let { t ->
+            val y = (size.height - (t / max * size.height)).toFloat()
+            drawLine(Color(0xFFD9534F), Offset(0f, y), Offset(size.width, y), 2f)
+        }
+    }
+}
+
+/** Daily bars behind one or more overlay lines, shared Y scale. */
+@Composable
+private fun ComboChart(bars: List<Double>, lines: List<Pair<Color, List<Double?>>>, threshold: Double? = null, modifier: Modifier = Modifier) {
+    val allLine = lines.flatMap { it.second }.filterNotNull()
+    val max = (bars.maxOrNull() ?: 0.0)
+        .coerceAtLeast(allLine.maxOrNull() ?: 0.0)
+        .coerceAtLeast(threshold ?: 0.0)
+        .coerceAtLeast(0.01)
+    Canvas(modifier.fillMaxWidth().height(150.dp)) {
+        listOf(0f, .5f, 1f).forEach { f ->
+            val y = size.height * (1 - f)
+            drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
+        }
+        if (bars.isNotEmpty()) {
+            val bw = size.width / bars.size
+            bars.forEachIndexed { i, v ->
+                val h = (v / max * size.height).toFloat()
+                drawRect(Pine.copy(alpha = .18f), Offset(i * bw, size.height - h),
+                    androidx.compose.ui.geometry.Size((bw - 1f).coerceAtLeast(1f), h))
+            }
+        }
+        threshold?.let { t ->
+            val y = (size.height - (t / max * size.height)).toFloat()
+            drawLine(Color(0xFFD9534F), Offset(0f, y), Offset(size.width, y), 2f)
+        }
+        lines.forEach { (color, series) ->
+            if (series.count { it != null } < 2) return@forEach
+            val step = size.width / (series.size - 1).coerceAtLeast(1)
+            val path = Path(); var started = false
+            series.forEachIndexed { i, v ->
+                if (v == null) return@forEachIndexed
+                val x = i * step
+                val y = (size.height - (v / max * size.height)).toFloat()
+                if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
+            }
+            drawPath(path, color, style = Stroke(width = 3f, cap = StrokeCap.Round))
+        }
+    }
+}
+
+@Composable
+private fun LineChart(values: List<Double?>, modifier: Modifier = Modifier, color: Color = Pine) {
+    val present = values.filterNotNull()
+    val min = present.minOrNull() ?: 0.0
+    val max = (present.maxOrNull() ?: 1.0)
+    val span = (max - min).takeIf { it > 0 } ?: 1.0
+    Canvas(modifier.fillMaxWidth().height(130.dp)) {
+        listOf(0f, .5f, 1f).forEach { f ->
+            val y = size.height * (1 - f)
+            drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
+        }
+        if (present.size < 2) return@Canvas
+        val step = size.width / (values.size - 1).coerceAtLeast(1)
+        val path = Path(); var started = false
+        values.forEachIndexed { i, v ->
+            if (v == null) return@forEachIndexed
+            val x = i * step
+            val y = (size.height - ((v - min) / span * size.height)).toFloat()
+            if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
+        }
+        drawPath(path, color, style = Stroke(width = 3f, cap = StrokeCap.Round))
+    }
+}
+
 private fun fmt(value: Double?, digits: Int = 1): String =
     if (value == null) "—" else String.format(Locale.CANADA_FRENCH, "%.${digits}f", value)
 
@@ -115,13 +226,27 @@ private val HEALTH_LABELS = mapOf(
 fun StatsScreen(context: Context) {
     RemoteScreen(context, "Analyse", "Stats", { ctx ->
         val stats = Net.json(ctx, "/api/stats?days=30")
+        val trends = runCatching { Net.json(ctx, "/api/stats/trends") }.getOrNull()
         val health = runCatching { Net.json(ctx, "/api/stats/health?days=90") }.getOrNull()
-        stats to health
-    }) { (stats, health) ->
+        Triple(stats, trends, health)
+    }) { (stats, trends, health) ->
         val period = stats.optJSONObject("period") ?: JSONObject()
         val grams = period.optJSONObject("grams") ?: JSONObject()
         val standards = period.optJSONObject("standards") ?: JSONObject()
-        SectionCard("30 derniers jours", "Par journée observée") {
+        val days = stats.optJSONArray("days") ?: JSONArray()
+        val dayStd = ArrayList<Double>(); val dayColors = ArrayList<Color>()
+        for (i in 0 until days.length()) {
+            val d = days.optJSONObject(i) ?: continue
+            dayStd.add(d.optDouble("standards", 0.0))
+            dayColors.add(if (d.optString("status") == "sober") Mint else if (d.optDouble("standards", 0.0) >= 3) Amber else Pine)
+        }
+        val firstDay = (days.optJSONObject(0)?.optString("date") ?: "").takeLast(5)
+        val lastDay = (days.optJSONObject(days.length() - 1)?.optString("date") ?: "").takeLast(5)
+        SectionCard("30 derniers jours", "Consommations standard par jour · ligne rouge = 3 std") {
+            ChartFrame("max ${fmt((dayStd.maxOrNull() ?: 0.0), 1)}", firstDay, lastDay) {
+                BarChart(dayStd, dayColors, threshold = 3.0)
+            }
+            Spacer(Modifier.height(12.dp))
             StatRow("Jours observés", period.optInt("days_observed").toString())
             StatRow("Jours sans alcool", "${period.optInt("alcohol_free_days")} (${fmt(period.numOrNull("alcohol_free_percent"), 0)} %)")
             StatRow("Total standards", fmt(period.numOrNull("total_standards")))
@@ -129,7 +254,38 @@ fun StatsScreen(context: Context) {
             StatRow("Médiane / jour", "${fmt(standards.numOrNull("median"), 2)} std")
             StatRow("Maximum", "${fmt(standards.numOrNull("max"), 2)} std · ${fmt(grams.numOrNull("max"), 0)} g")
         }
+        if (trends != null) TrendSection(trends)
         if (health != null) HealthSection(health)
+    }
+}
+
+@Composable
+private fun TrendSection(trends: JSONObject) {
+    val moving = trends.optJSONObject("moving_averages") ?: JSONObject()
+    fun series(window: String, field: String): List<Double?> {
+        val arr = moving.optJSONArray(window) ?: JSONArray()
+        return (0 until arr.length()).map { arr.optJSONObject(it)?.let { r -> if (r.isNull(field)) null else r.optDouble(field) } }
+    }
+    val window = "90"
+    val daily = series(window, "daily_standards").map { it ?: 0.0 }.takeLast(90)
+    val ma7 = series(window, "standards").takeLast(90)
+    val ma30 = series("30", "standards").takeLast(90)
+    val sevenArr = moving.optJSONArray(window) ?: JSONArray()
+    val firstD = (sevenArr.optJSONObject(maxOf(0, sevenArr.length() - 90))?.optString("date") ?: "").takeLast(5)
+    val lastD = (sevenArr.optJSONObject(sevenArr.length() - 1)?.optString("date") ?: "").takeLast(5)
+    val weekly = trends.optJSONArray("weekly") ?: JSONArray()
+    SectionCard("Tendance", "Barres = jour · vert = moyenne 7 j · ambre = moyenne 30 j") {
+        ChartFrame("standards / jour", firstD, lastD) {
+            ComboChart(daily, listOf(Pine to ma7, Amber to ma30), threshold = 3.0)
+        }
+        Spacer(Modifier.height(12.dp))
+        val lastWeeks = (maxOf(0, weekly.length() - 6) until weekly.length()).map { weekly.optJSONObject(it) }
+        lastWeeks.forEach { w ->
+            if (w != null) StatRow(
+                w.optString("period_start"),
+                "${fmt(w.numOrNull("total_standards"), 1)} std · ${w.optInt("alcohol_free_days")} j sans alcool",
+            )
+        }
     }
 }
 
@@ -148,10 +304,13 @@ private fun HealthSection(health: JSONObject) {
     var metric by remember { mutableStateOf(types.optString(0)) }
     val days = health.optJSONArray("days") ?: JSONArray()
     val correlations = health.optJSONObject("correlations") ?: JSONObject()
+    val series = ArrayList<Double?>()
     val values = ArrayList<Double>()
     for (i in 0 until days.length()) {
-        val h = days.optJSONObject(i)?.optJSONObject("health") ?: continue
-        if (h.has(metric) && !h.isNull(metric)) values.add(h.optDouble(metric))
+        val h = days.optJSONObject(i)?.optJSONObject("health")
+        val v = if (h != null && h.has(metric) && !h.isNull(metric)) h.optDouble(metric) else null
+        series.add(v)
+        if (v != null) values.add(v)
     }
     val avg = if (values.isEmpty()) null else values.sum() / values.size
     val corr = correlations.numOrNull(metric)
@@ -166,6 +325,8 @@ private fun HealthSection(health: JSONObject) {
                 )
             }
         }
+        Spacer(Modifier.height(10.dp))
+        LineChart(series, color = Amber)
         Spacer(Modifier.height(10.dp))
         val shown = if (metric == "sleep") avg?.div(60.0) else avg
         StatRow("${HEALTH_LABELS[metric] ?: metric} — moyenne", fmt(shown, if (metric == "steps") 0 else 1) + if (metric == "sleep") " h" else "")
@@ -251,39 +412,123 @@ fun SuccessScreen(context: Context) {
 
 /* ---------- Objectifs ---------- */
 
-private val GOAL_LABELS = mapOf(
+private val GOAL_KINDS = listOf(
+    "max_moving_7_grams" to "Moyenne mobile 7 j en grammes (max)",
     "max_grams_week" to "Grammes / semaine (max)",
     "max_standards" to "Standards / semaine (max)",
     "min_alcohol_free_days" to "Jours sans alcool / semaine (min)",
     "max_drinking_days" to "Jours avec alcool / semaine (max)",
     "max_grams_session" to "Grammes / occasion (max)",
-    "max_moving_7_grams" to "Moyenne mobile 7 j en grammes (max)",
     "monthly_reduction" to "Réduction mensuelle (%)",
 )
+private val GOAL_LABELS = GOAL_KINDS.toMap()
 
+private fun durationText(g: JSONObject): String = when (g.optString("temporal_mode")) {
+    "deadline" -> {
+        val due = g.optString("due_date").takeIf { it.isNotBlank() && it != "null" }
+        val left = if (g.isNull("days_remaining")) null else g.optInt("days_remaining")
+        "À tenir jusqu’au ${due ?: "?"}" + (left?.let { " (dans $it j)" } ?: "")
+    }
+    else -> {
+        val weeks = if (g.isNull("consecutive_weeks")) null else g.optInt("consecutive_weeks")
+        val done = if (g.isNull("consecutive_weeks_achieved")) null else g.optInt("consecutive_weeks_achieved")
+        "À maintenir ${weeks ?: "?"} semaines consécutives" + (done?.let { " · ${it}/${weeks ?: "?"} atteintes" } ?: "")
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GoalsScreen(context: Context) {
-    RemoteScreen(context, "Suivi", "Objectifs", { ctx ->
-        Net.array(ctx, "/api/goals")
-    }) { goals ->
-        if (goals.length() == 0) {
-            SectionCard("Aucun objectif") {
-                Text("Crée un objectif depuis la version web pour le suivre ici.", color = Pine.copy(alpha = .7f))
+    var goals by remember { mutableStateOf<JSONArray?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refreshing by remember { mutableStateOf(false) }
+    var tick by remember { mutableIntStateOf(0) }
+    var adding by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(tick) {
+        refreshing = true; error = null
+        runCatching { Net.array(context, "/api/goals") }.onSuccess { goals = it }.onFailure { error = it.message }
+        refreshing = false
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { tick++ }, modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            PageHeaderLite("Suivi", "Objectifs")
+            Button(onClick = { adding = true }, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) { Text("Ajouter un objectif") }
+            error?.let { Text(it, Modifier.padding(20.dp), color = Pine.copy(alpha = .7f)) }
+            val list = goals
+            if (list != null && list.length() == 0) SectionCard("Aucun objectif") {
+                Text("Ajoute un objectif pour suivre ta progression semaine après semaine.", color = Pine.copy(alpha = .7f))
             }
-        }
-        for (i in 0 until goals.length()) {
-            val g = goals.optJSONObject(i) ?: continue
-            SectionCard(GOAL_LABELS[g.optString("kind")] ?: g.optString("kind")) {
-                StatRow("Cible", fmt(g.numOrNull("target"), 1))
-                StatRow("Actuel", fmt(g.numOrNull("current"), 1))
-                val onTrack = if (g.isNull("on_track")) null else g.optBoolean("on_track")
-                StatRow("Statut", when (onTrack) { true -> "Sur la bonne voie"; false -> "À ajuster"; else -> "—" })
-                g.numOrNull("progress_percent")?.let { p ->
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(progress = { (p / 100.0).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            for (i in 0 until (list?.length() ?: 0)) {
+                val g = list!!.optJSONObject(i) ?: continue
+                SectionCard(GOAL_LABELS[g.optString("kind")] ?: g.optString("kind")) {
+                    StatRow("Cible", fmt(g.numOrNull("target"), 1))
+                    StatRow("Actuel", fmt(g.numOrNull("current"), 1))
+                    val onTrack = if (g.isNull("on_track")) null else g.optBoolean("on_track")
+                    StatRow("Statut", when (onTrack) { true -> "Sur la bonne voie"; false -> "À ajuster"; else -> "—" })
+                    Text(durationText(g), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .7f))
+                    g.numOrNull("progress_percent")?.let { p ->
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator(progress = { (p / 100.0).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    }
+                    if (!g.optBoolean("active")) Text("En pause", style = MaterialTheme.typography.labelMedium, color = Amber)
+                    TextButton(onClick = {
+                        scope.launch {
+                            runCatching { Net.send(context, "/api/goals/${g.optInt("id")}", JSONObject(), "DELETE") }
+                                .onSuccess { tick++ }.onFailure { error = it.message }
+                        }
+                    }) { Text("Retirer", color = Color(0xFFD9534F)) }
                 }
-                if (!g.optBoolean("active")) Text("En pause", style = MaterialTheme.typography.labelMedium, color = Amber)
             }
+            Spacer(Modifier.height(28.dp))
         }
     }
+    if (adding) GoalDialog(onDismiss = { adding = false }) { payload ->
+        scope.launch {
+            runCatching { Net.send(context, "/api/goals", payload) }.onSuccess { adding = false; tick++ }.onFailure { error = it.message }
+        }
+    }
+}
+
+@Composable
+private fun GoalDialog(onDismiss: () -> Unit, onCreate: (JSONObject) -> Unit) {
+    var kind by remember { mutableStateOf(GOAL_KINDS.first().first) }
+    var kindOpen by remember { mutableStateOf(false) }
+    var target by remember { mutableStateOf("") }
+    var deadlineMode by remember { mutableStateOf(false) }
+    var weeks by remember { mutableStateOf("4") }
+    var dueDate by remember { mutableStateOf(java.time.LocalDate.now().plusMonths(1).toString()) }
+    val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nouvel objectif") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box {
+                    OutlinedTextField(GOAL_LABELS[kind] ?: kind, {}, readOnly = true, label = { Text("Type") }, modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = { TextButton(onClick = { kindOpen = true }) { Text("Changer") } })
+                    DropdownMenu(expanded = kindOpen, onDismissRequest = { kindOpen = false }) {
+                        GOAL_KINDS.forEach { (k, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { kind = k; kindOpen = false }) }
+                    }
+                }
+                OutlinedTextField(target, { target = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, label = { Text("Cible") }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Objectif avec échéance", Modifier.weight(1f))
+                    Switch(checked = deadlineMode, onCheckedChange = { deadlineMode = it })
+                }
+                if (deadlineMode) OutlinedTextField(dueDate, { dueDate = it }, label = { Text("Échéance (AAAA-MM-JJ)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                else OutlinedTextField(weeks, { weeks = it.filter(Char::isDigit) }, label = { Text("Semaines consécutives à tenir") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val payload = JSONObject().put("kind", kind).put("target", target.replace(',', '.').toDoubleOrNull() ?: 0.0)
+                if (deadlineMode) payload.put("temporal_mode", "deadline").put("due_date", dueDate.trim())
+                else payload.put("temporal_mode", "consecutive_weeks").put("consecutive_weeks", weeks.toIntOrNull()?.coerceAtLeast(1) ?: 1)
+                onCreate(payload)
+            }) { Text("Créer") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
 }

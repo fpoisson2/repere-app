@@ -3082,6 +3082,8 @@ function Prefs({
   const [d, setD] = useState(stats?.tracking_start_date || ""),
     [hour, setHour] = useState(8),
     [weight, setWeight] = useState(75),
+    [sex, setSex] = useState("unspecified"),
+    [height, setHeight] = useState(175),
     [ratio, setRatio] = useState(0.68),
     [elim, setElim] = useState(0.015),
     [gap, setGap] = useState(4),
@@ -3095,7 +3097,9 @@ function Prefs({
     api("/auth/me").then((x) => {
       setHour(x.day_start_hour);
       setWeight(x.weight_kg);
-      setRatio(x.distribution_ratio);
+      setSex(x.sex || "unspecified");
+      if (x.height_cm) setHeight(x.height_cm);
+      setRatio(x.effective_distribution_ratio ?? x.distribution_ratio);
       setElim(x.elimination_rate);
       setGap(x.session_gap_hours);
     });
@@ -3108,11 +3112,14 @@ function Prefs({
         tracking_start_date: d,
         day_start_hour: hour,
         weight_kg: weight,
-        distribution_ratio: ratio,
+        sex,
+        height_cm: height,
         elimination_rate: elim,
         session_gap_hours: gap,
       }),
     });
+    const me = await api("/auth/me");
+    setRatio(me.effective_distribution_ratio ?? me.distribution_ratio);
     await refresh();
   };
   const changePassword = async () => {
@@ -3178,6 +3185,14 @@ function Prefs({
             />
           </label>
           <label>
+            Sexe
+            <select value={sex} onChange={(e) => setSex(e.target.value)}>
+              <option value="unspecified">Non précisé</option>
+              <option value="female">Femme</option>
+              <option value="male">Homme</option>
+            </select>
+          </label>
+          <label>
             Poids (kg)
             <input
               type="number"
@@ -3186,13 +3201,16 @@ function Prefs({
             />
           </label>
           <label>
-            Ratio de distribution
+            Grandeur (cm)
             <input
               type="number"
-              step=".01"
-              value={ratio}
-              onChange={(e) => setRatio(+e.target.value)}
+              value={height}
+              onChange={(e) => setHeight(+e.target.value)}
             />
+          </label>
+          <label>
+            Facteur de distribution (calculé)
+            <input type="number" value={ratio.toFixed(3)} readOnly disabled />
           </label>
           <label>
             Élimination (%/h)

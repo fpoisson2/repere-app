@@ -57,6 +57,9 @@ interface RepereDao {
     @Query("SELECT * FROM drinks WHERE clientId = :clientId LIMIT 1")
     suspend fun findByClientId(clientId: String): DrinkEntity?
 
+    @Query("SELECT startedAt FROM drinks WHERE deleted = 0 ORDER BY startedAt DESC LIMIT 400")
+    suspend fun recentStartTimes(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putDrink(drink: DrinkEntity)
 

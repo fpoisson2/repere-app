@@ -123,8 +123,22 @@ def sessions(drinks, gap_hours=4):
       "drink_count":sum(d.quantity for d in s["drinks"]),"grams":s["grams"],"standards":s["standards"],
       "grams_per_hour":s["grams"]/max((s["end"]-s["start"]).total_seconds()/3600, .25)} for s in result]
 
+def body_r(user):
+    """Widmark distribution ratio from sex/height/weight (Watson total body water,
+    age assumed 40). Falls back to sex constants, then the stored distribution_ratio."""
+    w=user.weight_kg or 75.
+    h=getattr(user,"height_cm",None)
+    sex=(getattr(user,"sex",None) or "unspecified").lower()
+    if h and h>100:
+        male=2.447-0.09516*40+0.1074*h+0.3362*w
+        female=-2.097+0.1069*h+0.2466*w
+        tbw=male if sex=="male" else female if sex=="female" else (male+female)/2
+        return max(.4,min(.9,tbw/(w*0.8065)))
+    return {"male":.68,"female":.55}.get(sex, user.distribution_ratio or .6)
+
 def bac_at(drinks, user, moment):
     absorbed=0.; eliminated=0.; active=False
+    r=body_r(user)
     for d in drinks:
         if moment <= d.started_at: continue
         absorption_minutes=max(30, d.duration_minutes+30)
@@ -133,9 +147,9 @@ def bac_at(drinks, user, moment):
         if fraction < 1: active=True
         full_at=d.started_at+timedelta(minutes=absorption_minutes)
         elimination_hours=max(0.,(moment-full_at).total_seconds()/3600)
-        eliminated += user.elimination_rate*elimination_hours*user.weight_kg*user.distribution_ratio*10
+        eliminated += user.elimination_rate*elimination_hours*user.weight_kg*r*10
     remaining=max(0.,absorbed-eliminated)
-    bac=max(0.,remaining/(user.weight_kg*1000*user.distribution_ratio)*100)
+    bac=max(0.,remaining/(user.weight_kg*1000*r)*100)
     return bac, remaining, active
 
 def bac_projection(drinks, user, now=None):
