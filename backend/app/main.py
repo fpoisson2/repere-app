@@ -1,5 +1,6 @@
 import csv, hashlib, io, json, math, os, secrets, sqlite3, statistics, tempfile, time as time_module, uuid
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -28,6 +29,18 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, https_only
 
 DEFAULT_PRESETS=[("Bière 341 ml","bière",341,5),("Bière 473 ml","bière",473,5),("IPA 473 ml","bière",473,6.5),
  ("Vin 150 ml","vin",150,12),("Bouteille de vin","vin",750,13),("Spiritueux 43 ml","spiritueux",43,40)]
+
+def local_and_utc(value:datetime, timezone_id:str|None=None)->tuple[datetime,datetime]:
+    """Normalize an incoming instant while retaining the user's local wall time."""
+    if value.tzinfo is None:
+        return value, value
+    utc=value.astimezone(UTC).replace(tzinfo=None)
+    if timezone_id:
+        try:
+            return value.astimezone(ZoneInfo(timezone_id)).replace(tzinfo=None), utc
+        except Exception:
+            pass
+    return value.replace(tzinfo=None), utc
 
 @app.on_event("startup")
 def startup():
@@ -82,7 +95,8 @@ def patch_settings(data:SettingsPatch,u:User=Depends(current_user),db:Session=De
 def wear_drink_out(d:Drink):
     return {"id":d.id,"drink_name":d.drink_name,"volume_ml":d.volume_ml,"abv_percent":d.abv_percent,
       "quantity":d.quantity,"started_at":d.started_at,"ended_at":d.ended_at,"duration_minutes":d.duration_minutes,
-      "alcohol_grams":d.alcohol_grams,"canadian_standard_drinks":d.canadian_standard_drinks,"is_active":d.is_active}
+      "alcohol_grams":d.alcohol_grams,"canadian_standard_drinks":d.canadian_standard_drinks,"is_active":d.is_active,
+      "started_at_utc":d.started_at_utc,"ended_at_utc":d.ended_at_utc,"timezone_id":d.timezone_id}
 
 def sync_drink_out(d:Drink):
     return {"id":d.id,"drink_type":d.drink_type,"drink_name":d.drink_name,"volume_ml":d.volume_ml,
@@ -144,9 +158,10 @@ def wear_start(payload:dict,idempotency_key:str|None=Header(None,alias="Idempote
     if preset and preset.user_id not in (None,u.id):raise HTTPException(404,"Preset introuvable")
     volume=float(payload.get("volume_ml") or (preset.volume_ml if preset else 473));abv=float(payload.get("abv_percent") if payload.get("abv_percent") is not None else (preset.abv_percent if preset else 5));quantity=int(payload.get("quantity") or 1)
     if volume<=0 or not 0<=abv<=100 or quantity<1:raise HTTPException(422,"Volume, taux ou quantité invalide")
-    started=datetime.fromisoformat(str(payload["started_at"]).replace("Z","+00:00")).replace(tzinfo=None) if payload.get("started_at") else datetime.now()
+    raw_started=datetime.fromisoformat(str(payload["started_at"]).replace("Z","+00:00")) if payload.get("started_at") else datetime.now()
+    started,started_utc=local_and_utc(raw_started,payload.get("timezone_id"))
     grams,standard=alcohol(volume,abv,quantity);dedupe=f"wear:{idempotency_key}" if idempotency_key else f"wear:{uuid.uuid4()}"
-    d=Drink(user_id=u.id,drink_type=preset.drink_type if preset else str(payload.get("drink_type") or "autre"),drink_name=str(payload.get("drink_name") or (preset.name if preset else "Consommation")),volume_ml=volume,abv_percent=abv,quantity=quantity,started_at=started,ended_at=started,duration_minutes=0,notes=None,cost=None,source_icon="wear",import_source="wear_os",external_id=None,import_batch_id=None,dedupe_key=dedupe,alcohol_grams=grams,canadian_standard_drinks=standard,is_active=True)
+    d=Drink(user_id=u.id,drink_type=preset.drink_type if preset else str(payload.get("drink_type") or "autre"),drink_name=str(payload.get("drink_name") or (preset.name if preset else "Consommation")),volume_ml=volume,abv_percent=abv,quantity=quantity,started_at=started,ended_at=started,duration_minutes=0,notes=None,cost=None,source_icon="wear",import_source="wear_os",external_id=None,import_batch_id=None,dedupe_key=dedupe,alcohol_grams=grams,canadian_standard_drinks=standard,is_active=True,started_at_utc=started_utc,ended_at_utc=started_utc,local_date=(started-timedelta(hours=u.day_start_hour)).date(),timezone_id=payload.get("timezone_id"),utc_offset_minutes=raw_started.utcoffset().total_seconds()/60 if raw_started.utcoffset() else None,timezone_assumption=None if raw_started.tzinfo else "legacy_local_time")
     db.add(d);day=(started-timedelta(hours=u.day_start_hour)).date()
     if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date):u.tracking_start_date=day
     record_sync_event(db,d);db.commit();db.refresh(d);return wear_drink_out(d)
@@ -155,9 +170,10 @@ def wear_start(payload:dict,idempotency_key:str|None=Header(None,alias="Idempote
 def wear_finish(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db)):
     d=db.scalar(select(Drink).where(Drink.user_id==u.id,Drink.is_active.is_(True)).order_by(Drink.started_at.desc()))
     if not d:raise HTTPException(404,"Aucune consommation active")
-    ended=datetime.fromisoformat(str(payload["ended_at"]).replace("Z","+00:00")).replace(tzinfo=None) if payload.get("ended_at") else datetime.now()
+    raw_ended=datetime.fromisoformat(str(payload["ended_at"]).replace("Z","+00:00")) if payload.get("ended_at") else datetime.now()
+    ended,ended_utc=local_and_utc(raw_ended,d.timezone_id)
     if ended<d.started_at:raise HTTPException(422,"La fin précède le début")
-    d.ended_at=ended;d.duration_minutes=max(0,round((ended-d.started_at).total_seconds()/60));d.is_active=False
+    d.ended_at=ended;d.ended_at_utc=ended_utc;d.duration_minutes=max(0,round((ended-d.started_at).total_seconds()/60));d.is_active=False
     record_sync_event(db,d);db.commit();db.refresh(d);return wear_drink_out(d)
 
 @app.get("/api/drinks",response_model=list[DrinkOut])
@@ -179,16 +195,17 @@ def add_drink(data:DrinkIn,idempotency_key:str|None=Header(None,alias="Idempoten
         existing=db.scalar(select(Drink).where(Drink.user_id==u.id,Drink.dedupe_key==f"manual:{idempotency_key}"))
         if existing:return existing
     grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity)
-    ended=data.started_at+timedelta(minutes=data.duration_minutes)
-    dedupe=f"manual:{idempotency_key}" if idempotency_key else key_for("manual",None,[data.started_at.isoformat(),data.drink_name,data.volume_ml,data.abv_percent,data.duration_minutes,datetime.utcnow().isoformat()])
-    day=(data.started_at-timedelta(hours=u.day_start_hour)).date()
+    started,started_utc=local_and_utc(data.started_at,data.timezone_id);ended=started+timedelta(minutes=data.duration_minutes);ended_utc=started_utc+timedelta(minutes=data.duration_minutes)
+    dedupe=f"manual:{idempotency_key}" if idempotency_key else key_for("manual",None,[started_utc.isoformat(),data.drink_name,data.volume_ml,data.abv_percent,data.duration_minutes,datetime.utcnow().isoformat()])
+    day=(started-timedelta(hours=u.day_start_hour)).date()
     plan=db.scalar(select(DailyPlan).where(DailyPlan.user_id==u.id,DailyPlan.local_date==day,
-        DailyPlan.created_at_utc<=data.started_at).order_by(DailyPlan.created_at_utc.desc()))
-    d=Drink(**data.model_dump(),user_id=u.id,ended_at=ended,dedupe_key=dedupe,alcohol_grams=grams,
+        DailyPlan.created_at_utc<=started_utc).order_by(DailyPlan.created_at_utc.desc()))
+    values=data.model_dump();values.pop("started_at",None)
+    d=Drink(**values,user_id=u.id,started_at=started,ended_at=ended,dedupe_key=dedupe,alcohol_grams=grams,
             canadian_standard_drinks=standard,source_icon=None,import_source=None,external_id=None,import_batch_id=None,
-            started_at_utc=data.started_at,ended_at_utc=ended,local_date=day,
+            started_at_utc=started_utc,ended_at_utc=ended_utc,local_date=day,
             planned_grams_snapshot=plan.planned_grams if plan else None,
-            timezone_assumption=None if data.timezone_id else "legacy_local_time")
+            timezone_assumption=None if data.timezone_id or data.started_at.tzinfo else "legacy_local_time")
     db.add(d)
     if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date): u.tracking_start_date=day
     record_sync_event(db,d);db.commit(); db.refresh(d); return d
@@ -198,10 +215,11 @@ def update_drink(drink_id:int,data:DrinkIn,u:User=Depends(current_user),db:Sessi
     d=db.get(Drink,drink_id)
     if not d or d.user_id!=u.id:raise HTTPException(404)
     grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity)
-    for key,value in data.model_dump().items():setattr(d,key,value)
-    d.ended_at=data.started_at+timedelta(minutes=data.duration_minutes)
-    d.started_at_utc=data.started_at;d.ended_at_utc=d.ended_at
-    d.local_date=(data.started_at-timedelta(hours=u.day_start_hour)).date()
+    started,started_utc=local_and_utc(data.started_at,data.timezone_id);ended=started+timedelta(minutes=data.duration_minutes)
+    values=data.model_dump();values.pop("started_at",None)
+    for key,value in values.items():setattr(d,key,value)
+    d.started_at=started;d.ended_at=ended;d.started_at_utc=started_utc;d.ended_at_utc=started_utc+timedelta(minutes=data.duration_minutes)
+    d.local_date=(started-timedelta(hours=u.day_start_hour)).date()
     d.alcohol_grams=grams;d.canadian_standard_drinks=standard
     record_sync_event(db,d);db.commit();db.refresh(d);return d
 
@@ -237,20 +255,23 @@ def push_sync(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db))
         operation=raw.get("operation");server_id=raw.get("server_id");data=raw.get("data") or {}
         if operation=="create":
             incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity)
-            ended=incoming.started_at+timedelta(minutes=incoming.duration_minutes);day=(incoming.started_at-timedelta(hours=u.day_start_hour)).date()
-            d=Drink(**incoming.model_dump(),user_id=u.id,ended_at=ended,dedupe_key=f"sync:{mutation_id}",
+            started,started_utc=local_and_utc(incoming.started_at,incoming.timezone_id);ended=started+timedelta(minutes=incoming.duration_minutes);ended_utc=started_utc+timedelta(minutes=incoming.duration_minutes);day=(started-timedelta(hours=u.day_start_hour)).date()
+            values=incoming.model_dump();values.pop("started_at",None)
+            d=Drink(**values,user_id=u.id,started_at=started,ended_at=ended,dedupe_key=f"sync:{mutation_id}",
               alcohol_grams=grams,canadian_standard_drinks=standard,source_icon=None,import_source="android",
-              external_id=None,import_batch_id=None,started_at_utc=incoming.started_at,ended_at_utc=ended,
-              local_date=day,timezone_assumption=None if incoming.timezone_id else "legacy_local_time")
+              external_id=None,import_batch_id=None,started_at_utc=started_utc,ended_at_utc=ended_utc,
+              local_date=day,timezone_assumption=None if incoming.timezone_id or incoming.started_at.tzinfo else "legacy_local_time")
             if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date):u.tracking_start_date=day
             db.add(d);record_sync_event(db,d);result={"mutation_id":mutation_id,"status":"applied","server_id":d.id}
         elif operation=="update":
             d=db.get(Drink,int(server_id)) if server_id is not None else None
             if not d or d.user_id!=u.id:raise HTTPException(404,"Consommation introuvable")
             incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity)
-            for key,value in incoming.model_dump().items():setattr(d,key,value)
-            d.ended_at=incoming.started_at+timedelta(minutes=incoming.duration_minutes);d.started_at_utc=incoming.started_at
-            d.ended_at_utc=d.ended_at;d.local_date=(incoming.started_at-timedelta(hours=u.day_start_hour)).date()
+            started,started_utc=local_and_utc(incoming.started_at,incoming.timezone_id);ended=started+timedelta(minutes=incoming.duration_minutes)
+            values=incoming.model_dump();values.pop("started_at",None)
+            for key,value in values.items():setattr(d,key,value)
+            d.started_at=started;d.ended_at=ended;d.started_at_utc=started_utc
+            d.ended_at_utc=started_utc+timedelta(minutes=incoming.duration_minutes);d.local_date=(started-timedelta(hours=u.day_start_hour)).date()
             d.alcohol_grams=grams;d.canadian_standard_drinks=standard;record_sync_event(db,d)
             result={"mutation_id":mutation_id,"status":"applied","server_id":d.id}
         elif operation=="delete":

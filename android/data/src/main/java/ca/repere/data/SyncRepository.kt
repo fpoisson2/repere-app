@@ -8,6 +8,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import java.time.OffsetDateTime
+import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 import ca.repere.core.CredentialStore
 
@@ -119,6 +121,8 @@ class SyncRepository(context: Context) {
     private fun DrinkEntity.toJson()=JSONObject().put("drink_name",name).put("drink_type",type)
         .put("volume_ml",volumeMl).put("abv_percent",abvPercent).put("quantity",quantity)
         .put("started_at",startedAt).put("duration_minutes",durationMinutes)
+        .put("timezone_id",ZoneId.systemDefault().id)
+        .put("utc_offset_minutes",runCatching { OffsetDateTime.parse(startedAt).offset.totalSeconds / 60 }.getOrNull())
         .put("notes",notes).put("cost",JSONObject.NULL)
 
     private fun JSONObject.toEntity(clientId:String)=DrinkEntity(clientId,getLong("id"),getString("drink_name"),

@@ -31,6 +31,9 @@ def utc_naive(value: datetime) -> datetime:
     if value.tzinfo is None: return value
     return value.astimezone(UTC).replace(tzinfo=None)
 
+def utc_iso(value: datetime|None) -> str|None:
+    return None if value is None else value.replace(tzinfo=UTC).isoformat().replace("+00:00","Z")
+
 class CheckInIn(BaseModel):
     id: str | None=None
     observed_at: datetime
@@ -150,7 +153,7 @@ def list_checkins(start:date|None=None,end:date|None=None,u:User=Depends(current
 def checkin_payload(db:Session,c:EmaCheckIn,x:ContextObservation):
     plan=db.scalar(select(DailyPlan).where(DailyPlan.user_id==c.user_id,
       DailyPlan.local_date==c.local_date,DailyPlan.created_at_utc==c.observed_at_utc))
-    return {"id":c.id,"local_date":c.local_date,"observed_at_utc":c.observed_at_utc,
+    return {"id":c.id,"local_date":c.local_date,"observed_at_utc":utc_iso(c.observed_at_utc),
       "timezone_id":c.timezone_id,"craving":c.craving,"confidence":c.confidence,
       "stress":c.stress,"positive_affect":c.positive_affect,"negative_affect":c.negative_affect,
       "fatigue":c.fatigue,"notes":c.notes,"post_onset":c.post_onset,

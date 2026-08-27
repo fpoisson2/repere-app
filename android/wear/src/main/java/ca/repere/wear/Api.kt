@@ -17,6 +17,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import ca.repere.core.CredentialStore
 
 object Api {
     private val queueMutex = Mutex()
@@ -27,10 +30,10 @@ object Api {
     }
 
     suspend fun start(context: Context, volume: Int, abv: Float, quantity: Int): JSONObject =
-        sendOrQueue(context, operation("/api/wear/start", "POST", JSONObject().put("volume_ml", volume).put("abv_percent", abv).put("quantity", quantity)))
+        sendOrQueue(context, operation("/api/wear/start", "POST", JSONObject().put("volume_ml", volume).put("abv_percent", abv).put("quantity", quantity).put("started_at", OffsetDateTime.now().toString()).put("timezone_id", ZoneId.systemDefault().id).put("utc_offset_minutes", OffsetDateTime.now().offset.totalSeconds / 60)))
 
     suspend fun finish(context: Context): JSONObject =
-        sendOrQueue(context, operation("/api/wear/finish", "POST", JSONObject()))
+        sendOrQueue(context, operation("/api/wear/finish", "POST", JSONObject().put("ended_at", OffsetDateTime.now().toString())))
 
     private suspend fun sendOrQueue(context: Context, current: JSONObject): JSONObject {
         return runCatching {
@@ -97,6 +100,7 @@ object Api {
         val credentials = CredentialStore(context)
         val server = credentials.server().trimEnd('/')
         val token = credentials.token()
+
         if (server.isBlank() || token.isBlank()) error("Configurez la montre depuis le téléphone")
         val connection = URL(server + request.getString("path")).openConnection() as HttpURLConnection
         connection.requestMethod = request.getString("method")

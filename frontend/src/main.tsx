@@ -3429,12 +3429,7 @@ function DrinkSheet({
     [duration, setDuration] = useState(drink?.duration_minutes ?? 30),
     [started, setStarted] = useState(
       drink
-        ? new Date(
-            new Date(drink.started_at).getTime() -
-              new Date().getTimezoneOffset() * 60000,
-          )
-            .toISOString()
-            .slice(0, 16)
+        ? String(drink.started_at).replace(" ", "T").slice(0, 16)
         : initialStart(),
     );
   const submit = async () => {
@@ -3447,6 +3442,8 @@ function DrinkSheet({
         abv_percent: abv,
         quantity: drink?.quantity || 1,
         started_at: new Date(started).toISOString(),
+        timezone_id: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        utc_offset_minutes: -new Date(started).getTimezoneOffset(),
         duration_minutes: duration,
       }),
     });
