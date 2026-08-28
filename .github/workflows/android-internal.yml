@@ -26,11 +26,13 @@ jobs:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
 
-      - name: Installer Java 21
-        uses: actions/setup-java@v4
+      - name: Installer JetBrains Runtime 21
+        uses: actions/setup-java@v5
         with:
-          distribution: temurin
+          distribution: jetbrains
           java-version: "21"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configurer Gradle
         uses: gradle/actions/setup-gradle@v4
