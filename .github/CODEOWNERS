@@ -1,0 +1,16 @@
+# Révision obligatoire du mainteneur sur les fichiers sensibles.
+# Voir https://docs.github.com/articles/about-code-owners
+
+# Tout le reste, par défaut
+*                       @fpoisson2
+
+# Chaîne de build / déploiement et secrets CI
+/.github/               @fpoisson2
+/android/**/build.gradle.kts   @fpoisson2
+/android/settings.gradle.kts   @fpoisson2
+/android/gradle/        @fpoisson2
+/scripts/               @fpoisson2
+
+# Backend et authentification
+/backend/app/settings.py   @fpoisson2
+/backend/app/main.py       @fpoisson2
