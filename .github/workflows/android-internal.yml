@@ -107,11 +107,10 @@ jobs:
           releaseFiles: >-
             android/mobile/build/outputs/bundle/release/mobile-release.aab,
             android/wear/build/outputs/bundle/release/wear-release.aab
-          track: internal
+          tracks: internal
           status: completed
           releaseName: ${{ steps.version.outputs.release_name }}
           whatsNewDirectory: android/distribution/whatsnew
-          changesNotSentForReview: true
 
       - name: Nettoyer les fichiers sensibles
         if: always()
