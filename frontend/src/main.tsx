@@ -37,7 +37,7 @@ import packageInfo from "../package.json";
 import { Locale, useI18n } from "./i18n";
 const APP_VERSION=import.meta.env.VITE_APP_VERSION || packageInfo.version;
 const SUPPORT_URL="https://buymeacoffee.com/fpoisson";
-const ISSUES_URL="https://github.com/fpoisson2/alcohol-tracker/issues";
+const ISSUES_URL="https://github.com/fpoisson2/repere-app/issues";
 const PLAY_STORE_URL="https://play.google.com/store/apps/details?id=ca.repere.app";
 type Preset = {
   id: number;

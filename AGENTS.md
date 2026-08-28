@@ -84,7 +84,7 @@ a 6-digit pairing code). Trust the code; update that doc when you get the chance
   `frontend/src/design-system.css`; do not introduce isolated colours or ad-hoc component styles
   when an existing token or pattern fits. See `docs/design-system.md`.
 - **Product links.** Buy Me a Coffee is `https://buymeacoffee.com/fpoisson`. Issues are reported
-  at `https://github.com/fpoisson2/alcohol-tracker/issues`. The Android install destination is the
+  at `https://github.com/fpoisson2/repere-app/issues`. The Android install destination is the
   Google Play URL above. Keep these links aligned between web, Android, and README documentation.
 - **Version and updates.** Web displays `VITE_APP_VERSION` (Docker receives it through
   `APP_VERSION`) and detects deployed versions through the service worker. Android displays

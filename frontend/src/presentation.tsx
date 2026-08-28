@@ -4,7 +4,7 @@ import { ArrowRight, Code2, Heart, LockKeyhole, RefreshCw, Server, ShieldCheck, 
 import "./presentation.css";
 
 const PLAY="https://play.google.com/store/apps/details?id=ca.repere.app";
-const GITHUB="https://github.com/fpoisson2/alcohol-tracker";
+const GITHUB="https://github.com/fpoisson2/repere-app";
 const SUPPORT="https://buymeacoffee.com/fpoisson";
 type Lang="fr"|"en";
 

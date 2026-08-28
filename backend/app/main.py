@@ -861,7 +861,7 @@ def export(format:str="json",u:User=Depends(current_user),db:Session=Depends(get
     if format=="json": return rows
     if format!="csv": raise HTTPException(422,"Format supporté: csv ou json")
     out=io.StringIO(); w=csv.DictWriter(out,fieldnames=rows[0].keys() if rows else ["id"]);w.writeheader();w.writerows(rows)
-    return StreamingResponse(iter([out.getvalue()]),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=alcohol-tracker.csv"})
+    return StreamingResponse(iter([out.getvalue()]),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=repere-consommations.csv"})
 
 def sqlite_path():
     prefix="sqlite:///"

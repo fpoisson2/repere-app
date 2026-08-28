@@ -711,10 +711,10 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
             Text(stringResource(R.string.app_version,BuildConfig.VERSION_NAME),color=Pine.copy(alpha=.72f))
             OutlinedButton(onClick={val intent=if(android.os.Build.VERSION.SDK_INT>=33)Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS,Uri.parse("package:${context.packageName}"))else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${context.packageName}"));context.startActivity(intent)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.language_settings))}
             OutlinedButton(onClick={scope.launch{val manager=AppUpdateManagerFactory.create(context);val info=runCatching{manager.appUpdateInfo.await()}.getOrNull();if(info?.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE))manager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))else message=context.getString(R.string.up_to_date)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
-            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/alcohol-tracker")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.source_code))}
+            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.source_code))}
             if(server.isNotBlank())OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(server.trimEnd('/')+"/about")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.project_website))}
             OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://buymeacoffee.com/fpoisson")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.support_repere))}
-            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/alcohol-tracker/issues")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.report_issue))}
+            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app/issues")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.report_issue))}
             Spacer(Modifier.height(20.dp))
         }
     }

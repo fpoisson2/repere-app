@@ -45,8 +45,8 @@ when connectivity returns.
 ## Quick start with Docker Compose
 
 ```bash
-git clone https://github.com/fpoisson2/alcohol-tracker.git
-cd alcohol-tracker
+git clone https://github.com/fpoisson2/repere-app.git
+cd repere-app
 cp .env.example .env
 # Replace SECRET_KEY with a long random value.
 docker compose up -d --build
@@ -123,10 +123,10 @@ remain on the phone and synchronize later.
 Repère includes installation and maintenance scripts for an unprivileged Debian 12 LXC:
 
 ```bash
-git clone https://github.com/fpoisson2/alcohol-tracker.git
-cd alcohol-tracker/scripts/proxmox
+git clone https://github.com/fpoisson2/repere-app.git
+cd repere-app/scripts/proxmox
 less create-lxc.sh
-sudo APP_REPO=https://github.com/fpoisson2/alcohol-tracker.git ./create-lxc.sh
+sudo APP_REPO=https://github.com/fpoisson2/repere-app.git ./create-lxc.sh
 ```
 
 See [Proxmox deployment](docs/proxmox.md) for networking, backup, restore, and operations.
@@ -219,4 +219,4 @@ changes can be merged into `main` after validation.
 If Repère is useful to you, you can [support its development on Buy Me a Coffee](https://buymeacoffee.com/fpoisson).
 
 Repère is available under the [MIT License](LICENSE). Bugs and feature requests can be reported in
-[GitHub Issues](https://github.com/fpoisson2/alcohol-tracker/issues).
+[GitHub Issues](https://github.com/fpoisson2/repere-app/issues).
