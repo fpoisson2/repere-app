@@ -861,7 +861,7 @@ def export(format:str="json",u:User=Depends(current_user),db:Session=Depends(get
     if format=="json": return rows
     if format!="csv": raise HTTPException(422,"Format supporté: csv ou json")
     out=io.StringIO(); w=csv.DictWriter(out,fieldnames=rows[0].keys() if rows else ["id"]);w.writeheader();w.writerows(rows)
-    return StreamingResponse(iter([out.getvalue()]),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=alcohol-tracker.csv"})
+    return StreamingResponse(iter([out.getvalue()]),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=repere-consommations.csv"})
 
 def sqlite_path():
     prefix="sqlite:///"
@@ -897,6 +897,8 @@ async def restore_backup(file:UploadFile=File(...),u:User=Depends(current_user))
 
 frontend=Path(__file__).resolve().parents[2]/"frontend"/"dist"
 if frontend.exists():
-    # Serve the complete Vite output, including favicon/PWA files at the root.
+    @app.get("/about",include_in_schema=False)
+    def project_presentation():return FileResponse(frontend/"about.html")
+    # Serve the complete Vite output, including icons and update-worker files at the root.
     # API routes are declared above this mount and therefore keep precedence.
     app.mount("/",StaticFiles(directory=frontend,html=True),name="frontend")

@@ -1,10 +1,9 @@
-const CACHE = "repere-v4";
+const CACHE = "repere-v5";
 self.addEventListener("install", (e) => {
-  self.skipWaiting();
   e.waitUntil(
     caches
       .open(CACHE)
-      .then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg"])),
+      .then((c) => c.addAll(["/", "/icon.svg"])),
   );
 });
 self.addEventListener("activate", (e) =>
@@ -18,6 +17,7 @@ self.addEventListener("activate", (e) =>
       ),
   ),
 );
+self.addEventListener("message",event=>{if(event.data?.type==="SKIP_WAITING")self.skipWaiting()});
 self.addEventListener("fetch", (e) => {
   if (e.request.method === "GET" && !e.request.url.includes("/api/"))
     e.respondWith(

@@ -207,13 +207,15 @@ def test_consumptions_csv_is_downloadable(client):
     assert "attachment" in response.headers["content-disposition"]
     assert "Export test" in response.text
 
-def test_pwa_and_foldable_navigation_assets():
+def test_web_update_worker_and_foldable_navigation_assets(client):
     root=Path(__file__).resolve().parents[2]/"frontend"
-    manifest=json.loads((root/"public/manifest.webmanifest").read_text(encoding="utf-8"))
-    source=(root/"src/main.tsx").read_text(encoding="utf-8");styles=(root/"src/design-system.css").read_text(encoding="utf-8");worker=(root/"public/sw.js").read_text(encoding="utf-8")
-    assert manifest["display"]=="standalone" and "serviceWorker.register" in source
+    source=(root/"src/main.tsx").read_text(encoding="utf-8");html=(root/"index.html").read_text(encoding="utf-8");styles=(root/"src/design-system.css").read_text(encoding="utf-8");worker=(root/"public/sw.js").read_text(encoding="utf-8")
+    assert "serviceWorker.register" in source and "play.google.com/store/apps/details?id=ca.repere.app" in source
+    assert 'rel="manifest"' not in html
+    response=client.get("/about")
+    assert response.status_code==200 and "Repère — Your data, in your hands" in response.text
     assert "position: fixed" in styles and "100vw - 16px" in styles
-    assert "repere-v4" in worker and "cache.put" in worker
+    assert "repere-v5" in worker and "cache.put" in worker
 
 import json
 from pathlib import Path

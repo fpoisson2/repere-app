@@ -12,7 +12,11 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "ca.repere.mobile"
     compileSdk = 36
-    defaultConfig { applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36; versionCode = 36010016; versionName = "1.6.0" }
+    defaultConfig {
+        applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36
+        versionCode = providers.gradleProperty("MOBILE_VERSION_CODE").orNull?.toInt() ?: 36010017
+        versionName = providers.gradleProperty("MOBILE_VERSION_NAME").orNull ?: "1.7.0"
+    }
     buildFeatures { compose = true; buildConfig = true }
     defaultConfig {
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://repere.ve2fpd.com\"")
@@ -53,4 +57,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
     implementation("androidx.health.connect:connect-client:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("com.google.android.play:app-update:2.1.0")
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
 }

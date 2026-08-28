@@ -47,6 +47,11 @@
   --shadow-overlay: 0 24px 70px rgba(10, 24, 18, 0.2);
   --focus: 0 0 0 3px rgba(19, 122, 90, 0.2);
 }
+.updatebanner{position:fixed;z-index:190;top:max(12px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--space-4);width:min(560px,calc(100vw - 24px));box-sizing:border-box;padding:var(--space-3) var(--space-4);color:var(--text);background:var(--surface-raised);border:1px solid var(--accent);border-radius:var(--radius-lg);box-shadow:var(--shadow-overlay)}
+.updatebanner span{flex:1;font-weight:var(--weight-semibold)}
+.resourcecard .actions{flex-wrap:wrap}
+.login-project-link{display:block;margin-top:var(--space-4);text-align:center;color:var(--text-muted);font-size:var(--text-sm);text-decoration:underline;text-underline-offset:3px}
+@media(max-width:600px){.updatebanner{align-items:stretch;flex-direction:column}.updatebanner .add{width:100%}}
 html,
 body,
 #root {

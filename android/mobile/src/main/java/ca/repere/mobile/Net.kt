@@ -2,6 +2,8 @@ package ca.repere.mobile
 
 import android.content.Context
 import ca.repere.core.CredentialStore
+import ca.repere.data.PendingApiOperation
+import ca.repere.data.ApiOperationRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
@@ -49,8 +51,8 @@ object Net {
 
     suspend fun send(context: Context, path: String, body: JSONObject, method: String = "POST"): JSONObject = withContext(Dispatchers.IO) {
         val creds = CredentialStore(context)
-        val operation=JSONObject().put("id",java.util.UUID.randomUUID().toString()).put("path",path).put("method",method).put("body",body)
-        val queue=runCatching{JSONArray(creds.pendingApiOperations())}.getOrDefault(JSONArray());queue.put(operation);creds.setPendingApiOperations(queue.toString())
+        val operation=PendingApiOperation(java.util.UUID.randomUUID().toString(),path,method,body.toString())
+        ApiOperationRepository(context).enqueue(operation)
         updateOptimisticCache(creds,path,method,body);background.launch{flush(context)}
         JSONObject(body.toString()).put("id",-System.currentTimeMillis())
     }
@@ -70,13 +72,13 @@ object Net {
     }
 
     suspend fun flush(context:Context)=withContext(Dispatchers.IO){
-        val creds=CredentialStore(context);val queue=runCatching{JSONArray(creds.pendingApiOperations())}.getOrDefault(JSONArray());if(queue.length()==0)return@withContext
-        val remaining=JSONArray()
-        for(i in 0 until queue.length()){
-            val op=queue.getJSONObject(i);val sent=runCatching{write(creds.server().trimEnd('/'),creds.token(),op.getString("path"),op.getJSONObject("body"),op.getString("method"))}.isSuccess
-            if(!sent)remaining.put(op)
+        val creds=CredentialStore(context);val operations=ApiOperationRepository(context)
+        val legacy=runCatching{JSONArray(creds.pendingApiOperations())}.getOrDefault(JSONArray());for(i in 0 until legacy.length()){val op=legacy.getJSONObject(i);operations.enqueue(PendingApiOperation(op.getString("id"),op.getString("path"),op.getString("method"),op.getJSONObject("body").toString()))};if(legacy.length()>0)creds.setPendingApiOperations("[]")
+        val queue=operations.pending()
+        for(op in queue){
+            val result=runCatching{write(creds.server().trimEnd('/'),creds.token(),op.path,JSONObject(op.body),op.method)}
+            if(result.isSuccess)operations.complete(op.id) else {operations.failed(op,result.exceptionOrNull()?.message);throw result.exceptionOrNull()!!}
         }
-        creds.setPendingApiOperations(remaining.toString())
     }
 
     private fun write(server: String, token: String, path: String, body: JSONObject, method: String): String {

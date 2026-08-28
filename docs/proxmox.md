@@ -8,7 +8,7 @@ Exécuter sur un hôte Proxmox VE en root. Le bridge par défaut est `vmbr0`; il
 
 ```bash
 git clone <repository>
-cd alcohol-tracker/scripts/proxmox
+cd repere-app/scripts/proxmox
 less create-lxc.sh
 sudo ./create-lxc.sh
 ```
@@ -18,7 +18,7 @@ Mode non interactif :
 ```bash
 CTID=220 HOSTNAME=alcohol STORAGE=local-lvm BRIDGE=vmbr0 \
 IP=192.168.1.220/24 GATEWAY=192.168.1.1 MEMORY=2048 CORES=2 DISK=8 \
-APP_REPO=https://example/alcohol-tracker.git bash create-lxc.sh
+APP_REPO=https://github.com/fpoisson2/repere-app.git bash create-lxc.sh
 ```
 
 Avec `IP=dhcp`, Proxmox transmet DHCP. Le conteneur Debian 12 est non privilégié, démarre au boot, et n’active ni nesting, keyctl ni FUSE. L’installation native est donc recommandée. `INSTALL_MODE=docker` existe, mais Docker-in-LXC demande généralement `features: nesting=1,keyctl=1`; configurez ces options explicitement sur l’hôte si votre version Proxmox l’exige. Cela augmente la surface et la complexité de dépannage.

@@ -12,7 +12,11 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "ca.repere.wear"
     compileSdk = 36
-    defaultConfig { applicationId = "ca.repere.app"; minSdk = 30; targetSdk = 35; versionCode = 35010018; versionName = "1.2.0" }
+    defaultConfig {
+        applicationId = "ca.repere.app"; minSdk = 30; targetSdk = 35
+        versionCode = providers.gradleProperty("WEAR_VERSION_CODE").orNull?.toInt() ?: 35010019
+        versionName = providers.gradleProperty("WEAR_VERSION_NAME").orNull ?: "1.2.1"
+    }
     buildFeatures { compose = true }
     signingConfigs {
         if (keystorePropertiesFile.exists()) create("release") {
