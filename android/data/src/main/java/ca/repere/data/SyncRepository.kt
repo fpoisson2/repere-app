@@ -23,11 +23,15 @@ class SyncRepository(context: Context) {
     private val dao = RepereDatabase.get(context).dao()
 
     fun observeDrinks():Flow<List<DrinkEntity>> = dao.observeDrinks()
-    fun observePresets():Flow<List<PresetEntity>> = dao.observePresets()
+    fun observePresets():Flow<List<PresetEntity>> = dao.observeVisiblePresets()
     fun observeTrackedDays():Flow<List<TrackedDayEntity>> = dao.observeTrackedDays()
+    fun observeCheckIns():Flow<List<CheckInEntity>> = dao.observeCheckIns()
+    fun observeGoals():Flow<List<GoalEntity>> = dao.observeGoals()
+    fun observeSettings():Flow<LocalSettings?> = dao.observeSettings()
     suspend fun recentStartTimes():List<String> = dao.recentStartTimes()
 
     suspend fun ensureOfflineDefaults(){
+        if(dao.settings()==null)dao.putSettings(LocalSettings())
         if(dao.presetCount()>0)return
         dao.putPresets(listOf(
             PresetEntity(-1,"Bière 333 ml","bière",333.0,5.0),PresetEntity(-2,"Bière 473 ml","bière",473.0,5.0),
@@ -40,9 +44,12 @@ class SyncRepository(context: Context) {
         if(!credentials.syncEnabled())return
         val server=credentials.server().trimEnd('/');val token=credentials.token()
         if (server.isBlank() || token.isBlank()) return
+        val me=request(server,token,"/api/auth/me","GET",null);bindSyncAccount("$server#${me.optString("id",me.optString("username"))}")
         push(server, token)
+        pushCheckIns(server,token);pushGoals(server,token);pushPresets(server,token);pushSettings(server,token)
         pullPresets(server,token)
         pull(server, token)
+        pullCheckIns(server,token);pullGoals(server,token);pullSettings(server,token)
     }
 
     suspend fun createOffline(drink: DrinkEntity) {
@@ -123,6 +130,49 @@ class SyncRepository(context: Context) {
 
     suspend fun setSoberDay(day:String,sober:Boolean){if(sober)dao.putTrackedDays(listOf(TrackedDayEntity(day)))else dao.deleteTrackedDay(day)}
 
+    suspend fun saveCheckIn(payload:JSONObject){
+        val id=payload.optString("id").ifBlank{UUID.randomUUID().toString()};payload.put("id",id)
+        dao.putCheckIn(CheckInEntity(id,payload.getString("local_date"),payload.toString()))
+    }
+
+    suspend fun createGoal(payload:JSONObject){
+        val id=UUID.randomUUID().toString();dao.putGoal(GoalEntity(id,null,payload.getString("kind"),payload.getDouble("target"),
+            temporalMode=payload.optString("temporal_mode","consecutive_weeks"),consecutiveWeeks=payload.optInt("consecutive_weeks").takeIf{it>0},
+            dueDate=payload.optString("due_date").takeIf{it.isNotBlank()},startedOn=java.time.LocalDate.now().toString()))
+    }
+    suspend fun deleteGoal(clientId:String){val row=dao.goal(clientId)?:return;if(row.serverId==null)dao.deleteGoal(clientId)else dao.putGoal(row.copy(deleted=true,dirty=true,lastError=null))}
+    suspend fun markGoalAchieved(clientId:String){dao.goal(clientId)?.takeIf{!it.achieved}?.let{dao.putGoal(it.copy(achieved=true))}}
+    suspend fun saveSettings(dayStartHour:Int,sessionGapHours:Double=8.0,trackingStartDate:String?=null){
+        val old=dao.settings()?:LocalSettings();dao.putSettings(old.copy(dayStartHour=dayStartHour,sessionGapHours=sessionGapHours,trackingStartDate=trackingStartDate,dirty=true))
+    }
+    suspend fun savePreset(preset:PresetEntity,name:String,type:String,volume:Double,abv:Double){
+        val id=if(preset.serverId==0L)-System.currentTimeMillis() else preset.serverId
+        dao.putPresets(listOf(PresetEntity(id,name,type,volume,abv,true,false,UUID.randomUUID().toString())))
+    }
+    suspend fun deletePresetLocal(preset:PresetEntity){if(preset.serverId<=0)dao.deletePreset(preset.serverId)else dao.putPresets(listOf(preset.copy(dirty=true,deleted=true,mutationId=UUID.randomUUID().toString())))}
+
+    private suspend fun bindSyncAccount(account:String){val settings=dao.settings()?:LocalSettings();val previous=settings.syncAccount;if(previous!=null&&previous!=account){
+        dao.removeSyncedDrinks();dao.detachPendingDrinks();dao.removeSyncedPresets();dao.removeSyncedGoals();dao.removeSyncedCheckIns();dao.clearTrackedDays();dao.clearSyncState()
+    };if(previous!=account)dao.putSettings(settings.copy(syncAccount=account))}
+
+    private suspend fun pushCheckIns(server:String,token:String){for(row in dao.pendingCheckIns())runCatching{
+        request(server,token,"/api/check-ins","POST",JSONObject(row.payload));dao.putCheckIn(row.copy(dirty=false,lastError=null))
+    }.onFailure{dao.putCheckIn(row.copy(lastError=it.message))}}
+    private suspend fun pushGoals(server:String,token:String){for(row in dao.pendingGoals())runCatching{
+        if(row.deleted){row.serverId?.let{requestRaw(server,token,"/api/goals/$it","DELETE",JSONObject())};dao.deleteGoal(row.clientId)}
+        else if(row.serverId==null){val body=goalJson(row);val result=request(server,token,"/api/goals","POST",body);dao.putGoal(row.copy(serverId=result.getLong("id"),dirty=false,lastError=null))}
+        else {request(server,token,"/api/goals/${row.serverId}","PATCH",goalJson(row));dao.putGoal(row.copy(dirty=false,lastError=null))}
+    }.onFailure{dao.putGoal(row.copy(lastError=it.message))}}
+    private fun goalJson(row:GoalEntity)=JSONObject().put("kind",row.kind).put("target",row.target).put("active",row.active).put("temporal_mode",row.temporalMode)
+        .put("consecutive_weeks",row.consecutiveWeeks).put("due_date",row.dueDate)
+    private suspend fun pushPresets(server:String,token:String){for(row in dao.pendingPresets())runCatching{
+        if(row.deleted){if(row.serverId>0)requestRaw(server,token,"/api/presets/${row.serverId}","DELETE",JSONObject());dao.deletePreset(row.serverId)}
+        else {val body=JSONObject().put("name",row.name).put("drink_type",row.type).put("volume_ml",row.volumeMl).put("abv_percent",row.abvPercent)
+            if(row.serverId<=0){val result=request(server,token,"/api/presets","POST",body);dao.deletePreset(row.serverId);dao.putPresets(listOf(row.copy(serverId=result.getLong("id"),dirty=false,mutationId=null)))}
+            else {request(server,token,"/api/presets/${row.serverId}","PATCH",body);dao.putPresets(listOf(row.copy(dirty=false,mutationId=null)))}}
+    }}
+    private suspend fun pushSettings(server:String,token:String){val row=dao.settings()?:return;if(!row.dirty)return;request(server,token,"/api/settings","PATCH",JSONObject().put("day_start_hour",row.dayStartHour).put("session_gap_hours",row.sessionGapHours).put("tracking_start_date",row.trackingStartDate));dao.putSettings(row.copy(dirty=false))}
+
     private suspend fun pullPresets(server:String,token:String) {
         val rows=requestArray(server,token,"/api/wear/presets")
         val presets=buildList {
@@ -132,8 +182,12 @@ class SyncRepository(context: Context) {
                     row.getDouble("volume_ml"),row.getDouble("abv_percent")))
             }
         }
-        dao.clearPresets();dao.putPresets(presets)
+        val pending=dao.pendingPresets();dao.clearPresets();dao.putPresets(presets+pending)
     }
+
+    private suspend fun pullCheckIns(server:String,token:String){val rows=requestArray(server,token,"/api/check-ins");for(i in 0 until rows.length()){val value=rows.getJSONObject(i);val id=value.getString("id");dao.putCheckIn(CheckInEntity(id,value.getString("local_date"),value.toString(),false))}}
+    private suspend fun pullGoals(server:String,token:String){val rows=requestArray(server,token,"/api/goals");val pending=dao.pendingGoals();dao.removeSyncedGoals();for(i in 0 until rows.length()){val g=rows.getJSONObject(i);val serverId=g.getLong("id");val local=pending.firstOrNull{it.serverId==serverId};if(local==null)dao.putGoal(GoalEntity("server:$serverId",serverId,g.getString("kind"),g.getDouble("target"),g.optBoolean("active",true),g.optString("temporal_mode","consecutive_weeks"),g.optInt("consecutive_weeks").takeIf{it>0},g.optString("due_date").takeIf{it.isNotBlank()&&it!="null"},g.optString("started_on",java.time.LocalDate.now().toString()),false))}}
+    private suspend fun pullSettings(server:String,token:String){val me=request(server,token,"/api/auth/me","GET",null);val old=dao.settings()?:LocalSettings();if(!old.dirty)dao.putSettings(old.copy(dayStartHour=me.optInt("day_start_hour",old.dayStartHour),sessionGapHours=me.optDouble("session_gap_hours",old.sessionGapHours),trackingStartDate=me.optString("tracking_start_date").takeIf{it.isNotBlank()&&it!="null"}))}
 
     private fun DrinkEntity.toJson()=JSONObject().put("drink_name",name).put("drink_type",type)
         .put("volume_ml",volumeMl).put("abv_percent",abvPercent).put("quantity",quantity)
@@ -157,6 +211,13 @@ class SyncRepository(context: Context) {
         val text=(if(connection.responseCode in 200..299)connection.inputStream else connection.errorStream).bufferedReader().readText()
         if(connection.responseCode !in 200..299)error(runCatching{JSONObject(text).optString("detail")}.getOrDefault("Erreur ${connection.responseCode}"))
         JSONObject(text)
+    }
+
+    private suspend fun requestRaw(server:String,token:String,path:String,method:String,body:JSONObject?)=withContext(Dispatchers.IO){
+        val connection=URL(server+path).openConnection() as HttpURLConnection;connection.requestMethod=method;connection.connectTimeout=10000;connection.readTimeout=15000
+        connection.setRequestProperty("Authorization","Bearer $token");connection.setRequestProperty("Content-Type","application/json")
+        if(body!=null&&method!="GET"){connection.doOutput=true;connection.outputStream.use{it.write(body.toString().toByteArray())}}
+        val code=connection.responseCode;if(code !in 200..299)error("Erreur $code");connection.disconnect()
     }
 
 

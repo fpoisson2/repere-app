@@ -2,6 +2,7 @@ package ca.repere.core
 
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
+import java.time.LocalDate
 import java.time.ZoneId
 
 /** Accepts both local backend timestamps and offset-aware offline timestamps. */
@@ -9,3 +10,5 @@ fun parseDrinkTime(raw:String):OffsetDateTime = runCatching { OffsetDateTime.par
     .getOrElse { LocalDateTime.parse(raw).atZone(ZoneId.systemDefault()).toOffsetDateTime() }
 
 fun normalizeDrinkTime(raw:String):String=parseDrinkTime(raw).toString()
+
+fun trackedDay(raw:String,dayStartHour:Int=8):LocalDate=parseDrinkTime(raw).minusHours(dayStartHour.toLong()).toLocalDate()

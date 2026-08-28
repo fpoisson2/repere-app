@@ -897,6 +897,8 @@ async def restore_backup(file:UploadFile=File(...),u:User=Depends(current_user))
 
 frontend=Path(__file__).resolve().parents[2]/"frontend"/"dist"
 if frontend.exists():
-    # Serve the complete Vite output, including favicon/PWA files at the root.
+    @app.get("/about",include_in_schema=False)
+    def project_presentation():return FileResponse(frontend/"about.html")
+    # Serve the complete Vite output, including icons and update-worker files at the root.
     # API routes are declared above this mount and therefore keep precedence.
     app.mount("/",StaticFiles(directory=frontend,html=True),name="frontend")

@@ -1,6 +1,9 @@
 package ca.repere.mobile
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.lifecycle.Lifecycle
@@ -47,6 +51,9 @@ import ca.repere.data.SyncRepository
 import ca.repere.data.SyncWorker
 import ca.repere.data.TrackedDayEntity
 import ca.repere.data.HealthAggregateEntity
+import ca.repere.data.CheckInEntity
+import ca.repere.data.GoalEntity
+import ca.repere.data.LocalSettings
 import ca.repere.core.canadianStandards
 import ca.repere.core.CredentialStore
 import ca.repere.core.BacDrink
@@ -55,6 +62,7 @@ import ca.repere.core.distributionRatio
 import ca.repere.core.peakBac
 import ca.repere.core.bacAt
 import ca.repere.core.parseDrinkTime
+import ca.repere.core.trackedDay
 import ca.repere.data.HealthLocalRepository
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
@@ -70,6 +78,11 @@ import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.google.android.play.core.appupdate.AppUpdateInfo
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,15 +100,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Destination(val label:String,val icon:ImageVector,val inBar:Boolean=true) {
-    NOW("Maintenant",Icons.Filled.LocalBar),
-    STATS("Stats",Icons.AutoMirrored.Filled.ShowChart),
-    INSIGHTS("Repères",Icons.Filled.Insights),
-    SUCCESS("Succès",Icons.Filled.EmojiEvents),
-    GOALS("Objectifs",Icons.Filled.Flag),
-    SETTINGS("Réglages",Icons.Filled.Settings),
-    HISTORY("Historique",Icons.Filled.History,inBar=false),
-    HEALTH("Santé",Icons.Filled.MonitorHeart,inBar=false)
+private enum class Destination(val labelRes:Int,val icon:ImageVector,val inBar:Boolean=true) {
+    NOW(R.string.nav_now,Icons.Filled.LocalBar),
+    STATS(R.string.nav_stats,Icons.AutoMirrored.Filled.ShowChart),
+    INSIGHTS(R.string.nav_insights,Icons.Filled.Insights),
+    SUCCESS(R.string.nav_success,Icons.Filled.EmojiEvents),
+    GOALS(R.string.nav_goals,Icons.Filled.Flag),
+    SETTINGS(R.string.nav_settings,Icons.Filled.Settings),
+    HISTORY(R.string.nav_history,Icons.Filled.History,inBar=false),
+    HEALTH(R.string.nav_health,Icons.Filled.MonitorHeart,inBar=false)
 }
 
 @Composable
@@ -105,6 +118,10 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     val drinks by repository.observeDrinks().collectAsState(initial=emptyList())
     val presets by repository.observePresets().collectAsState(initial=emptyList())
     val trackedDays by repository.observeTrackedDays().collectAsState(initial=emptyList())
+    val checkIns by repository.observeCheckIns().collectAsState(initial=emptyList())
+    val goals by repository.observeGoals().collectAsState(initial=emptyList())
+    val localSettings by repository.observeSettings().collectAsState(initial=null)
+    val analysisDrinks=remember(drinks,localSettings?.trackingStartDate){val start=localSettings?.trackingStartDate?.let{runCatching{LocalDate.parse(it)}.getOrNull()};if(start==null)drinks else drinks.filter{drink->runCatching{parseDrinkTime(drink.startedAt).toLocalDate()>=start}.getOrDefault(true)}}
     val healthRows by remember{HealthLocalRepository(context)}.observe().collectAsState(initial=emptyList())
     var destination by remember{mutableStateOf(Destination.NOW)}
     var server by remember{mutableStateOf(credentials.server(BuildConfig.DEFAULT_SERVER_URL))}
@@ -112,6 +129,8 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     var syncEnabled by remember{mutableStateOf(credentials.syncEnabled())}
     var status by remember{mutableStateOf(if(syncEnabled)"Prêt hors ligne" else "Local uniquement")}
     var syncing by remember{mutableStateOf(false)}
+    val updateManager=remember{AppUpdateManagerFactory.create(context)}
+    var availableUpdate by remember{mutableStateOf<AppUpdateInfo?>(null)}
     val scope=rememberCoroutineScope()
 
     fun synchronize()=scope.launch {
@@ -122,6 +141,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
         syncing=false
     }
     LaunchedEffect(Unit){repository.ensureOfflineDefaults()}
+    LaunchedEffect(Unit){availableUpdate=runCatching{updateManager.appUpdateInfo.await()}.getOrNull()?.takeIf{it.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&it.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)}}
     LaunchedEffect(token,syncEnabled){if(token.isNotBlank()&&syncEnabled)synchronize()}
     // Re-read credentials (e.g. after the OAuth browser redirect) and refresh whenever the app returns to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME){
@@ -130,13 +150,14 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     }
 
     Scaffold(containerColor=Paper,bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.filter{it.inBar}.forEach{item ->
+        val label=stringResource(item.labelRes)
         NavigationBarItem(selected=destination==item,onClick={destination=item},
-            icon={Icon(item.icon,contentDescription=item.label)},
-            label={Text(item.label,maxLines=1,style=MaterialTheme.typography.labelSmall)})
+            icon={Icon(item.icon,contentDescription=label)},
+            label={Text(label,maxLines=1,style=MaterialTheme.typography.labelSmall)})
     }}}){padding ->
         Box(Modifier.padding(padding).fillMaxSize()){
             when(destination){
-                Destination.NOW -> MaintenantScreen(context,drinks,presets,trackedDays,status,openCheckIn,{synchronize()},
+                Destination.NOW -> MaintenantScreen(context,repository,drinks,presets,trackedDays,checkIns,localSettings?:LocalSettings(),status,openCheckIn,{synchronize()},
                     onCustom={name,volume,abv,quantity,startedAt,duration -> scope.launch{
                         repository.createCustom(name,volume,abv,quantity,startedAt,duration);status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
                     }},
@@ -145,14 +166,15 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
                     }},
                     onDelete={id -> scope.launch{repository.markDeleted(id);status="Suppression en attente";synchronize()}},
                     onSober={day,sober->scope.launch{repository.setSoberDay(day,sober)}})
-                Destination.STATS -> StatsScreen(context,drinks,trackedDays,healthRows)
-                Destination.INSIGHTS -> InsightsScreen(context)
-                Destination.SUCCESS -> SuccessScreen(context)
-                Destination.GOALS -> GoalsScreen(context)
+                Destination.STATS -> StatsScreen(context,analysisDrinks,trackedDays,healthRows,localSettings?:LocalSettings())
+                Destination.INSIGHTS -> InsightsScreen(analysisDrinks,checkIns,localSettings?:LocalSettings())
+                Destination.SUCCESS -> SuccessScreen(analysisDrinks,trackedDays,checkIns,goals,localSettings?:LocalSettings())
+                Destination.GOALS -> GoalsScreen(repository,goals,drinks,trackedDays,localSettings?:LocalSettings(),{synchronize()})
                 Destination.HISTORY -> HistoryScreen(drinks){clientId -> scope.launch{repository.markDeleted(clientId);status=if(syncEnabled)"Suppression en attente" else "Suppression locale";synchronize()}}
                 Destination.HEALTH -> HealthScreen(context,server,token)
-                Destination.SETTINGS -> SettingsScreen(context,server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH})
+                Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH})
             }
+            availableUpdate?.let{info->Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_available),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))}}){Text(stringResource(R.string.update_action))}}}}
         }
     }
 }
@@ -181,14 +203,14 @@ private val PRESET_NEW = PresetEntity(0L, "", "autre", 333.0, 5.0)
 @Composable
 private fun MaintenantScreen(
     context:Context,
-    drinks:List<DrinkEntity>, presets:List<PresetEntity>, trackedDays:List<TrackedDayEntity>, status:String, openCheckIn:Boolean, onSync:()->Unit,
+    repository:SyncRepository, drinks:List<DrinkEntity>, presets:List<PresetEntity>, trackedDays:List<TrackedDayEntity>, checkIns:List<CheckInEntity>, settings:LocalSettings, status:String, openCheckIn:Boolean, onSync:()->Unit,
     onCustom:(String,Double,Double,Int,String,Int)->Unit,
     onEdit:(String,String,Double,Double,Int,String,Int)->Unit, onDelete:(String)->Unit, onSober:(String,Boolean)->Unit,
 ) {
     var day by remember { mutableStateOf(LocalDate.now()) }
     val isToday = day == LocalDate.now()
     val dayKey = day.toString()
-    val dayDrinks = drinks.filter { it.startedAt.take(10) == dayKey }.sortedBy { it.startedAt }
+    val dayDrinks = drinks.filter { runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false) }.sortedBy { it.startedAt }
     val standards = dayDrinks.sumOf { canadianStandards(it.volumeMl, it.abvPercent, it.quantity) }
     var editing by remember { mutableStateOf<DrinkEntity?>(null) }
     var creatingFrom by remember { mutableStateOf<PresetEntity?>(null) }
@@ -233,8 +255,8 @@ private fun MaintenantScreen(
                     }
                 }
             }
-            if (isToday) BacCard(context,dayDrinks) else if(dayDrinks.isNotEmpty()) HistoricalBacCard(context,dayDrinks)
-            LastCheckInCard(context, day, checkInRefresh)
+            if (isToday) BacCard(context,drinks) else if(dayDrinks.isNotEmpty()) HistoricalBacCard(context,dayDrinks)
+            LastCheckInCard(checkIns, day, checkInRefresh)
             OutlinedButton(onClick = { checkIn = true }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()) {
                 Icon(Icons.AutoMirrored.Filled.Assignment, null); Spacer(Modifier.width(8.dp)); Text("Faire un check-in")
             }
@@ -297,15 +319,15 @@ private fun MaintenantScreen(
         }
     }
     val prefill = creatingFrom
-    editingPreset?.let { p -> PresetEditorDialog(context, p, onDismiss = { editingPreset = null }) { editingPreset = null; onSync() } }
+    editingPreset?.let { p -> PresetEditorDialog(repository, p, onDismiss = { editingPreset = null }) { editingPreset = null; onSync() } }
     if (creatingBlank) DrinkEditorDialog(day, null, onDismiss = { creatingBlank = false }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingBlank = false }
     if (prefill != null) DrinkEditorDialog(day, null, prefillName = prefill.name, prefillVolume = prefill.volumeMl.toInt(), prefillAbv = prefill.abvPercent, onDismiss = { creatingFrom = null }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingFrom = null }
     editing?.let { d -> DrinkEditorDialog(day, d, onDismiss = { editing = null }) { n, v, a, q, started, dur -> onEdit(d.clientId, n, v, a, q, started, dur); editing = null } }
     if (checkIn) CheckInDialog(day, onDismiss = { checkIn = false }) { payload ->
         scope.launch {
-            runCatching { Net.send(context, "/api/check-ins", payload) }
+            runCatching { repository.saveCheckIn(payload) }
                 .onFailure { dayMessage = it.message ?: "Check-in non envoyé" }
-                .onSuccess { dayMessage = "Check-in enregistré"; checkInRefresh++ }
+                .onSuccess { dayMessage = "Check-in enregistré localement"; checkInRefresh++;onSync() }
         }
         checkIn = false
     }
@@ -371,7 +393,7 @@ private fun DrinkEditorDialog(
 }
 
 @Composable
-private fun PresetEditorDialog(context:Context, preset:PresetEntity, onDismiss:()->Unit, onSaved:()->Unit) {
+private fun PresetEditorDialog(repository:SyncRepository, preset:PresetEntity, onDismiss:()->Unit, onSaved:()->Unit) {
     val isNew = preset.serverId <= 0L
     var name by remember { mutableStateOf(preset.name) }
     var type by remember { mutableStateOf(preset.type) }
@@ -394,7 +416,7 @@ private fun PresetEditorDialog(context:Context, preset:PresetEntity, onDismiss:(
                 if (!isNew) TextButton(onClick = {
                     scope.launch {
                         busy = true
-                        runCatching { Net.send(context, "/api/presets/${preset.serverId}", JSONObject(), "DELETE") }
+                        runCatching { repository.deletePresetLocal(preset) }
                             .onSuccess { onSaved() }.onFailure { message = it.message ?: "Suppression impossible"; busy = false }
                     }
                 }) { Text("Supprimer ce favori", color = Color(0xFFD9534F)) }
@@ -404,10 +426,7 @@ private fun PresetEditorDialog(context:Context, preset:PresetEntity, onDismiss:(
             TextButton(enabled = !busy, onClick = {
                 scope.launch {
                     busy = true
-                    val body = JSONObject().put("name", name.trim()).put("drink_type", type.trim().ifBlank { "autre" })
-                        .put("volume_ml", volume.toDoubleOrNull() ?: 0.0).put("abv_percent", abv.replace(',', '.').toDoubleOrNull() ?: 0.0)
-                    val path = if (isNew) "/api/presets" else "/api/presets/${preset.serverId}"
-                    runCatching { Net.send(context, path, body, if (isNew) "POST" else "PATCH") }
+                    runCatching { repository.savePreset(preset,name.trim(),type.trim().ifBlank { "autre" },volume.toDoubleOrNull() ?: 0.0,abv.replace(',', '.').toDoubleOrNull() ?: 0.0) }
                         .onSuccess { onSaved() }.onFailure { message = it.message ?: "Enregistrement impossible"; busy = false }
                 }
             }) { Text("Enregistrer") }
@@ -424,16 +443,19 @@ private fun BodyMetricsSection(context:Context) {
     var sexOpen by remember { mutableStateOf(false) }
     var weight by remember { mutableStateOf("") }
     var height by remember { mutableStateOf("") }
+    var elimination by remember { mutableStateOf(localProfile.bacEliminationRate().toString()) }
     var ratio by remember { mutableStateOf<Double?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
+        sex=localProfile.bodySex();localProfile.bodyHeightCm()?.let{height=it.toInt().toString()}
         localProfile.bacWeightKg()?.let { weight=it.toInt().toString() }
         ratio=localProfile.bacDistributionRatio()
         runCatching { Net.json(context, "/api/auth/me") }.onSuccess {
             sex = it.optString("sex", "unspecified").ifBlank { "unspecified" }
             if(!it.isNull("weight_kg"))weight = it.optDouble("weight_kg").toInt().toString()
             if(!it.isNull("height_cm"))height = it.optDouble("height_cm").toInt().toString()
+            if(!it.isNull("elimination_rate"))elimination=it.optDouble("elimination_rate").toString()
             val remoteRatio=if (it.isNull("effective_distribution_ratio")) it.doubleOrNull("distribution_ratio") else it.optDouble("effective_distribution_ratio")
             if(remoteRatio!=null)ratio=remoteRatio
             if(weight.toDoubleOrNull()!=null&&ratio!=null)localProfile.saveBacProfile(weight.toDouble(),ratio!!)
@@ -451,17 +473,19 @@ private fun BodyMetricsSection(context:Context) {
     }
     OutlinedTextField(weight, { weight = it.filter(Char::isDigit) }, label = { Text("Poids (kg)") }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
     OutlinedTextField(height, { height = it.filter(Char::isDigit) }, label = { Text("Grandeur (cm)") }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(elimination,{elimination=it.filter{char->char.isDigit()||char=='.'}},label={Text(stringResource(R.string.elimination_rate))},supportingText={Text(stringResource(R.string.elimination_rate_hint))},singleLine=true,keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal),modifier=Modifier.fillMaxWidth())
     ratio?.let { Text("Facteur de distribution calculé : ${String.format(Locale.CANADA_FRENCH, "%.3f", it)}", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .7f)) }
     Button(onClick = {
         scope.launch {
-            val localWeight=weight.toDoubleOrNull();val localRatio=localWeight?.let { distributionRatio(sex,height.toDoubleOrNull(),it,ratio?:.6) }
-            if(localWeight==null||localRatio==null){message="Poids requis pour calculer l’alcoolémie";return@launch}
-            ratio=localRatio;localProfile.saveBacProfile(localWeight,localRatio);message="Profil enregistré sur l’appareil"
+            val localWeight=weight.toDoubleOrNull();val localRatio=localWeight?.let { distributionRatio(sex,height.toDoubleOrNull(),it,ratio?:.6) };val localElimination=elimination.toDoubleOrNull()
+            if(localWeight==null||localRatio==null){message="Poids requis pour calculer l’alcoolémie";return@launch};if(localElimination==null||localElimination !in .005..0.03){message=context.getString(R.string.invalid_elimination_rate);return@launch}
+            ratio=localRatio;localProfile.saveBacProfile(localWeight,localRatio,localElimination);localProfile.saveBodyMetrics(sex,height.toDoubleOrNull());message="Profil enregistré sur l’appareil"
             val body = JSONObject().put("sex", sex)
             weight.toDoubleOrNull()?.let { body.put("weight_kg", it) }
             height.toDoubleOrNull()?.let { body.put("height_cm", it) }
+            body.put("elimination_rate",localElimination)
             runCatching { Net.send(context, "/api/settings", body, "PATCH") }
-                .onSuccess { ratio = it.doubleOrNull("distribution_ratio") ?: ratio;localProfile.saveBacProfile(localWeight,ratio!!);message = "Profil enregistré et synchronisé" }
+                .onSuccess { ratio = it.doubleOrNull("distribution_ratio") ?: ratio;localProfile.saveBacProfile(localWeight,ratio!!);message = "Profil enregistré localement · synchronisation planifiée" }
                 .onFailure { message = "Profil enregistré sur l’appareil · synchronisation en attente" }
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil") }
@@ -518,21 +542,12 @@ private fun HistoricalBacCard(context:Context,drinks:List<DrinkEntity>) {
 }
 
 @Composable
-private fun LastCheckInCard(context:Context, day:LocalDate, refreshKey:Int) {
+private fun LastCheckInCard(checkIns:List<CheckInEntity>, day:LocalDate, refreshKey:Int) {
     val dayKey = day.toString()
     val isToday = day == LocalDate.now()
-    var checkIn by remember { mutableStateOf<JSONObject?>(null) }
-    var loaded by remember { mutableStateOf(false) }
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(dayKey, refreshKey, tick) {
-        checkIn = runCatching { Net.array(context, "/api/check-ins?start=$dayKey&end=$dayKey") }.getOrNull()
-            ?.let { if (it.length() > 0) it.getJSONObject(0) else null }
-        loaded = true
-    }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
-    val c = checkIn
+    val c=remember(checkIns,dayKey,refreshKey){checkIns.firstOrNull{it.localDate==dayKey}?.let{runCatching{JSONObject(it.payload)}.getOrNull()}}
     if (c == null) {
-        if (loaded && isToday) Text(
+        if (isToday) Text(
             "Aucun check-in aujourd’hui.",
             Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .55f),
@@ -631,8 +646,15 @@ private fun HealthScreen(context:Context,server:String,token:String) {
 }
 
 @Composable
-private fun SettingsScreen(context:Context,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit) {
+private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List<DrinkEntity>,localSettings:LocalSettings,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit) {
     val credentials=remember{CredentialStore(context)};var message by remember{mutableStateOf(status)};val scope=rememberCoroutineScope()
+    var dayStart by remember{mutableIntStateOf(localSettings.dayStartHour)};var sessionGap by remember{mutableStateOf(localSettings.sessionGapHours)}
+    var trackingStart by remember{mutableStateOf(localSettings.trackingStartDate.orEmpty())}
+    LaunchedEffect(localSettings.dayStartHour,localSettings.sessionGapHours,localSettings.trackingStartDate){dayStart=localSettings.dayStartHour;sessionGap=localSettings.sessionGapHours;trackingStart=localSettings.trackingStartDate.orEmpty()}
+    val exportLauncher=rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv")){uri -> uri?.let{
+        runCatching{val quote:(String)->String={value->"\"${value.replace("\"","\"\"")}\""};val csv=buildString{appendLine("name,volume_ml,abv_percent,quantity,started_at,duration_minutes");drinks.forEach{drink->appendLine(listOf(drink.name,drink.volumeMl.toString(),drink.abvPercent.toString(),drink.quantity.toString(),drink.startedAt,drink.durationMinutes.toString()).joinToString(","){quote(it)})}};context.contentResolver.openOutputStream(it)?.bufferedWriter()?.use{writer->writer.write(csv)}}
+            .onSuccess{message=context.getString(R.string.export_complete)}.onFailure{message=context.getString(R.string.export_failed)}}
+    }
     var reminderOn by remember{mutableStateOf(CheckInReminder.isEnabled(context))}
     val notifPermission=rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()){granted ->
         reminderOn=granted;CheckInReminder.setEnabled(context,granted)
@@ -656,6 +678,17 @@ private fun SettingsScreen(context:Context,server:String,onServer:(String)->Unit
             }
             Text(message,color=Pine.copy(alpha=.72f))
             HorizontalDivider(Modifier.padding(vertical=6.dp))
+            Text(stringResource(R.string.calculation_history),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+            OutlinedTextField(trackingStart,{trackingStart=it},label={Text(stringResource(R.string.tracking_start_date))},supportingText={Text(stringResource(R.string.iso_date_hint))},modifier=Modifier.fillMaxWidth(),singleLine=true)
+            Text(stringResource(R.string.day_start),fontWeight=FontWeight.Bold)
+            Text(stringResource(R.string.day_start_explanation,dayStart),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
+            Slider(value=dayStart.toFloat(),onValueChange={dayStart=it.toInt()},valueRange=0f..23f,steps=22)
+            Text(stringResource(R.string.hour_value,dayStart),fontWeight=FontWeight.Bold)
+            Text(stringResource(R.string.session_gap),fontWeight=FontWeight.Bold)
+            Text(stringResource(R.string.session_gap_explanation),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
+            Slider(value=sessionGap.toFloat(),onValueChange={sessionGap=(it*2).toInt()/2.0},valueRange=1f..12f,steps=21)
+            Text(stringResource(R.string.hours_value,sessionGap),fontWeight=FontWeight.Bold)
+            Button(onClick={scope.launch{val date=trackingStart.trim().takeIf{it.isNotBlank()};if(date!=null&&runCatching{LocalDate.parse(date)}.isFailure){message=context.getString(R.string.invalid_date);return@launch};repository.saveSettings(dayStart,sessionGap,date);message=context.getString(R.string.settings_saved_locally);if(syncEnabled)SyncWorker.schedule(context)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.save_calculation_settings))}
             HorizontalDivider(Modifier.padding(vertical=6.dp))
             BodyMetricsSection(context)
             HorizontalDivider(Modifier.padding(vertical=6.dp))
@@ -672,6 +705,16 @@ private fun SettingsScreen(context:Context,server:String,onServer:(String)->Unit
             }
             OutlinedButton(onClick=onOpenHealth,modifier=Modifier.fillMaxWidth()){Text("Données de santé (Health Connect)")}
             OutlinedButton(onClick=onOpenHistory,modifier=Modifier.fillMaxWidth()){Text("Historique complet")}
+            OutlinedButton(onClick={exportLauncher.launch("repere-consommations.csv")},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.export_csv))}
+            HorizontalDivider(Modifier.padding(vertical=6.dp))
+            Text(stringResource(R.string.about_support),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.app_version,BuildConfig.VERSION_NAME),color=Pine.copy(alpha=.72f))
+            OutlinedButton(onClick={val intent=if(android.os.Build.VERSION.SDK_INT>=33)Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS,Uri.parse("package:${context.packageName}"))else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${context.packageName}"));context.startActivity(intent)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.language_settings))}
+            OutlinedButton(onClick={scope.launch{val manager=AppUpdateManagerFactory.create(context);val info=runCatching{manager.appUpdateInfo.await()}.getOrNull();if(info?.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE))manager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))else message=context.getString(R.string.up_to_date)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
+            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/alcohol-tracker")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.source_code))}
+            if(server.isNotBlank())OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(server.trimEnd('/')+"/about")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.project_website))}
+            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://buymeacoffee.com/fpoisson")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.support_repere))}
+            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/alcohol-tracker/issues")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.report_issue))}
             Spacer(Modifier.height(20.dp))
         }
     }

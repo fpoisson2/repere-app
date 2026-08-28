@@ -27,6 +27,9 @@ class CredentialStore(private val context:Context) {
     fun bacWeightKg():Double?=get("bac_weight_kg","").toDoubleOrNull()
     fun bacDistributionRatio():Double?=get("bac_distribution_ratio","").toDoubleOrNull()
     fun bacEliminationRate():Double=get("bac_elimination_rate","0.015").toDoubleOrNull()?:0.015
+    fun bodySex():String=get("body_sex","unspecified")
+    fun bodyHeightCm():Double?=get("body_height_cm","").toDoubleOrNull()
+    fun saveBodyMetrics(sex:String,heightCm:Double?){put("body_sex",sex);put("body_height_cm",heightCm?.toString().orEmpty())}
     fun saveBacProfile(weightKg:Double,distributionRatio:Double,eliminationRate:Double=.015){
         put("bac_weight_kg",weightKg.toString());put("bac_distribution_ratio",distributionRatio.toString());put("bac_elimination_rate",eliminationRate.toString())
     }

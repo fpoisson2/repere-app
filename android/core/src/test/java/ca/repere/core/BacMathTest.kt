@@ -23,4 +23,10 @@ class BacMathTest {
         assertEquals(13,parseDrinkTime("2026-08-27T13:43:00").hour)
         assertEquals(13,parseDrinkTime("2026-08-27T13:43:00-04:00").hour)
     }
+
+    @Test fun trackedDayUsesConfiguredBoundary() {
+        assertEquals(java.time.LocalDate.parse("2026-08-26"),trackedDay("2026-08-27T01:30:00-04:00",8))
+        assertEquals(java.time.LocalDate.parse("2026-08-27"),trackedDay("2026-08-27T09:00:00-04:00",8))
+        assertEquals(java.time.LocalDate.parse("2026-08-27"),trackedDay("2026-08-27T01:30:00-04:00",0))
+    }
 }

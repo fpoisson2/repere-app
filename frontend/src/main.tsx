@@ -33,6 +33,12 @@ import "./celebration.css";
 import "./sober-input.css";
 import "./mood.css";
 import "./design-system.css";
+import packageInfo from "../package.json";
+import { Locale, useI18n } from "./i18n";
+const APP_VERSION=import.meta.env.VITE_APP_VERSION || packageInfo.version;
+const SUPPORT_URL="https://buymeacoffee.com/fpoisson";
+const ISSUES_URL="https://github.com/fpoisson2/alcohol-tracker/issues";
+const PLAY_STORE_URL="https://play.google.com/store/apps/details?id=ca.repere.app";
 type Preset = {
   id: number;
   name: string;
@@ -115,6 +121,7 @@ const api = async (path: string, opts: RequestInit = {}) => {
   return r.status === 204 ? null : r.json();
 };
 function Login({ done }: { done: () => Promise<void> }) {
+  const {t}=useI18n();
   const [u, setU] = useState(""),
     [p, setP] = useState(""),
     [e, setE] = useState("");
@@ -139,30 +146,35 @@ function Login({ done }: { done: () => Promise<void> }) {
           <h1>Repère</h1>
         </div>
         <input
-          placeholder="Utilisateur"
+          placeholder={t("login.user")}
           value={u}
           onChange={(e) => setU(e.target.value)}
         />
         <input
           type="password"
-          placeholder="Mot de passe (8 caractères min.)"
+          placeholder={t("login.password")}
           value={p}
           onChange={(e) => setP(e.target.value)}
         />
         {e && <p className="error">{e}</p>}
         <div className="actions">
           <button className="ghost" onClick={() => go("/auth/register")}>
-            Créer un compte
+            {t("login.create")}
           </button>
           <button className="add" onClick={() => go("/auth/login")}>
-            Connexion
+            {t("login.submit")}
           </button>
         </div>
+        <a className="ghost buttonlink" href={PLAY_STORE_URL} target="_blank" rel="noreferrer">
+          {t("android.install")}
+        </a>
+        <a className="login-project-link" href="/about">{t("project.discover")}</a>
       </div>
     </main>
   );
 }
 function App() {
+  const {locale,setLocale,t}=useI18n();
   const [ready, setReady] = useState(false),
     [auth, setAuth] = useState(
       localStorage.getItem("repere-has-session") === "true",
@@ -181,6 +193,7 @@ function App() {
     ),
     [online, setOnline] = useState(navigator.onLine),
     [queued, setQueued] = useState(readQueue().length),
+    [updateReady,setUpdateReady]=useState<ServiceWorker | null>(null),
     [theme, setTheme] = useState<"light" | "dark">(() => {
       const saved = localStorage.getItem("repere-theme");
       if (saved === "light" || saved === "dark") return saved;
@@ -259,16 +272,12 @@ function App() {
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem("repere-theme", theme);
   }, [theme]);
+  useEffect(()=>{const available=(event:Event)=>setUpdateReady((event as CustomEvent<ServiceWorker>).detail);window.addEventListener("repere-update-available",available);return()=>window.removeEventListener("repere-update-available",available)},[]);
   if (!ready) return null;
   if (!auth) return <Login done={load} />;
-  const titles = {
-    now: "Tableau personnel",
-    stats: "Statistiques",
-    insights: "Repères personnels",
-    success: "Succès",
-    goals: "Objectifs",
-    settings: "Réglages",
-    history: "Historique",
+  const titles:Record<View,string> = {
+    now: t("title.now"), stats:t("title.stats"), insights:t("title.insights"),
+    success:t("title.success"), goals:t("title.goals"), settings:t("title.settings"), history:t("title.history"),
   };
   return (
     <>
@@ -286,7 +295,7 @@ function App() {
               <span
                 className={`networkstate ${online ? "syncing" : "offline"}`}
               >
-                {online ? `${queued} en attente` : "Hors ligne"}
+                {online ? t("network.pending",{count:queued}) : t("network.offline")}
               </span>
             )}
             <button
@@ -333,18 +342,21 @@ function App() {
               setAuth(false);
             }}
             openHistory={() => setView("history")}
+            locale={locale}
+            setLocale={setLocale}
           />
         )}
       </main>
+      {updateReady&&<aside className="updatebanner" role="status"><span>{t("update.title")}</span><button className="add" onClick={()=>updateReady.postMessage({type:"SKIP_WAITING"})}>{t("update.action")}</button></aside>}
       <nav className="nav">
         {(
           [
-            ["now", Activity, "Maintenant"],
-            ["stats", BarChart3, "Stats"],
-            ["insights", BrainCircuit, "Repères"],
-            ["success", Trophy, "Succès"],
-            ["goals", Target, "Objectifs"],
-            ["settings", Settings, "Réglages"],
+            ["now", Activity, t("nav.now")],
+            ["stats", BarChart3, t("nav.stats")],
+            ["insights", BrainCircuit, t("nav.insights")],
+            ["success", Trophy, t("nav.success")],
+            ["goals", Target, t("nav.goals")],
+            ["settings", Settings, t("nav.settings")],
           ] as const
         ).map(([id, Icon, label]) => (
           <button
@@ -3110,11 +3122,15 @@ function Prefs({
   refresh,
   logout,
   openHistory,
+  locale,
+  setLocale,
 }: {
   stats: any;
   refresh: () => Promise<void>;
   logout: () => void;
   openHistory: () => void;
+  locale:Locale;
+  setLocale:(locale:Locale)=>void;
 }) {
   const [d, setD] = useState(stats?.tracking_start_date || ""),
     [hour, setHour] = useState(8),
@@ -3402,6 +3418,19 @@ function Prefs({
           <a className="add buttonlink" href="/api/export?format=csv" download="repere-consommations.csv">
             <Download size={16} /> Télécharger le CSV
           </a>
+        </div>
+      </section>
+      <section className="card full resourcecard">
+        <div className="eyebrow">{locale==="fr-CA"?"À propos et soutien":"About and support"}</div>
+        <h2>Repère</h2>
+        <div className="form">
+          <label>{locale==="fr-CA"?"Langue":"Language"}<select value={locale} onChange={event=>setLocale(event.target.value as Locale)}><option value="fr-CA">Français (Canada)</option><option value="en">English</option></select></label>
+          <label>{locale==="fr-CA"?"Version web":"Web version"}<input value={APP_VERSION} readOnly /></label>
+        </div>
+        <div className="actions">
+          <a className="add buttonlink" href={PLAY_STORE_URL} target="_blank" rel="noreferrer">{locale==="fr-CA"?"Installer l’application Android sur Google Play":"Install the Android app from Google Play"}</a>
+          <a className="add buttonlink" href={SUPPORT_URL} target="_blank" rel="noreferrer">{locale==="fr-CA"?"Soutenir Repère":"Support Repère"}</a>
+          <a className="ghost buttonlink" href={ISSUES_URL} target="_blank" rel="noreferrer">{locale==="fr-CA"?"Signaler un problème sur GitHub":"Report an issue on GitHub"}</a>
         </div>
       </section>
       <section className="full settingsimport">
@@ -3874,8 +3903,13 @@ function DrinkSheet({
   );
 }
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () =>
-    navigator.serviceWorker.register("/sw.js"),
-  );
+  window.addEventListener("load",async()=>{
+    const registration=await navigator.serviceWorker.register("/sw.js");
+    const notify=(worker:ServiceWorker|null)=>{if(worker&&navigator.serviceWorker.controller)window.dispatchEvent(new CustomEvent("repere-update-available",{detail:worker}))};
+    notify(registration.waiting);
+    registration.addEventListener("updatefound",()=>{const worker=registration.installing;worker?.addEventListener("statechange",()=>{if(worker.state==="installed")notify(worker)})});
+    navigator.serviceWorker.addEventListener("controllerchange",()=>window.location.reload());
+    window.setInterval(()=>registration.update(),6*60*60*1000);
+  });
 }
 createRoot(document.getElementById("root")!).render(<App />);

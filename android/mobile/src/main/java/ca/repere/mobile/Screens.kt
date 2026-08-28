@@ -38,9 +38,14 @@ import kotlin.math.roundToInt
 import ca.repere.data.DrinkEntity
 import ca.repere.data.TrackedDayEntity
 import ca.repere.data.HealthAggregateEntity
+import ca.repere.data.CheckInEntity
+import ca.repere.data.GoalEntity
+import ca.repere.data.LocalSettings
+import ca.repere.data.SyncRepository
 import ca.repere.core.alcoholGrams
 import ca.repere.core.canadianStandards
 import ca.repere.core.parseDrinkTime
+import ca.repere.core.trackedDay
 
 /* ---------- shared building blocks ---------- */
 
@@ -245,12 +250,12 @@ private val HEALTH_LABELS = mapOf(
 )
 
 @Composable
-fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<TrackedDayEntity>, healthRows:List<HealthAggregateEntity>) {
+fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<TrackedDayEntity>, healthRows:List<HealthAggregateEntity>,settings:LocalSettings) {
     var start by remember { mutableStateOf(LocalDate.now().minusDays(89)) }
     var end by remember { mutableStateOf(LocalDate.now()) }
     var custom by remember { mutableStateOf(false) }
     val days=remember(drinks,start,end){generateSequence(start){if(it<end)it.plusDays(1)else null}.map { day ->
-        val rows=drinks.filter { it.startedAt.take(10)==day.toString() };val sober=trackedDays.any{it.day==day.toString()&&it.sober};LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)},rows,rows.isNotEmpty()||sober,sober)
+        val rows=drinks.filter { runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false) };val sober=trackedDays.any{it.day==day.toString()&&it.sober};LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)},rows,rows.isNotEmpty()||sober,sober)
     }.toList()};val observed=days.filter{it.observed};val drinking=days.filter{it.grams>0};val totalStd=observed.sumOf{it.standards};val totalGrams=observed.sumOf{it.grams}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PageHeaderLite("Analyse", "Stats")
@@ -453,10 +458,9 @@ private fun strength(r: Double): String = when {
 /* ---------- Repères (insights) ---------- */
 
 @Composable
-fun InsightsScreen(context: Context) {
-    RemoteScreen(context, "Associations personnelles", "Repères", { ctx ->
-        Net.json(ctx, "/api/analytics/personal")
-    }) { data ->
+fun InsightsScreen(drinks:List<DrinkEntity>,checkIns:List<CheckInEntity>,settings:LocalSettings) {
+    val data=remember(drinks,checkIns,settings){personalAnalytics(drinks,checkIns,settings)}
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { PageHeaderLite("Associations personnelles", "Repères")
         val ready = data.optJSONObject("model_readiness") ?: JSONObject()
         SectionCard("Disponibilité", "Ce que tes données permettent aujourd'hui") {
             StatRow("Jours disponibles", data.optInt("days_available").toString())
@@ -485,16 +489,27 @@ fun InsightsScreen(context: Context) {
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .6f),
         )
+        Spacer(Modifier.height(28.dp))
     }
+}
+
+private fun personalAnalytics(drinks:List<DrinkEntity>,checkIns:List<CheckInEntity>,settings:LocalSettings):JSONObject{
+    val totals=drinks.groupBy{runCatching{trackedDay(it.startedAt,settings.dayStartHour).toString()}.getOrDefault(it.startedAt.take(10))}.mapValues{(_,rows)->rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}
+    val parsed=checkIns.mapNotNull{runCatching{JSONObject(it.payload)}.getOrNull()};val rows=parsed.mapNotNull{c->totals[c.optString("local_date")]?.let{actual->Triple(c,actual,maxOf(0.0,actual-c.optDouble("planned_grams",0.0)))}}
+    fun association(name:String,value:(JSONObject)->Double?):JSONObject{val pairs=rows.mapNotNull{(c,_,excess)->value(c)?.let{it to excess}};val out=JSONObject().put("factor",name).put("sample_size",pairs.size);if(pairs.size<5)return out.put("status","insufficient_data")
+        val ax=pairs.map{it.first}.average();val ay=pairs.map{it.second}.average();val top=pairs.sumOf{(it.first-ax)*(it.second-ay)};val bottom=kotlin.math.sqrt(pairs.sumOf{(it.first-ax)*(it.first-ax)}*pairs.sumOf{(it.second-ay)*(it.second-ay)});return out.put("coefficient",if(bottom==0.0)JSONObject.NULL else top/bottom).put("language","Tes dépassements ont été plus fréquents lorsque $name.")}
+    val excess=rows.count{it.third>0};return JSONObject().put("days_available",(totals.keys+parsed.map{it.optString("local_date")}).size).put("events_available",excess)
+        .put("associations",JSONArray().put(association("l’envie de boire était plus forte"){it.optDouble("craving")}).put(association("la confiance était plus faible"){10-it.optDouble("confidence")}).put(association("le stress était plus élevé"){if(it.has("stress"))it.optDouble("stress")else null}))
+        .put("disclaimer","Ces résultats décrivent des associations personnelles; ils ne démontrent pas une cause.")
+        .put("model_readiness",JSONObject().put("descriptive",rows.size>=7).put("associations",rows.size>=20&&excess>=5).put("regularized_model",rows.size>=42&&excess>=10).put("temporal_model",rows.size>=90))
 }
 
 /* ---------- Succès ---------- */
 
 @Composable
-fun SuccessScreen(context: Context) {
-    RemoteScreen(context, "Progrès orientés réduction", "Succès", { ctx ->
-        Net.json(ctx, "/api/success")
-    }) { data ->
+fun SuccessScreen(drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,checkIns:List<CheckInEntity>,goals:List<GoalEntity>,settings:LocalSettings) {
+    val data=remember(drinks,tracked,checkIns,goals,settings){localSuccess(drinks,tracked,checkIns,goals,settings)}
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { PageHeaderLite("Progrès orientés réduction", "Succès")
         val badges = data.optJSONArray("badges") ?: JSONArray()
         val unlocked = (0 until badges.length()).count { badges.optJSONObject(it)?.optBoolean("unlocked") == true }
         SectionCard("Vue d'ensemble") {
@@ -516,7 +531,23 @@ fun SuccessScreen(context: Context) {
                 )
             }
         }
+        Spacer(Modifier.height(28.dp))
     }
+}
+
+private fun localSuccess(drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,checkIns:List<CheckInEntity>,goals:List<GoalEntity>,settings:LocalSettings):JSONObject{
+    val byDay=drinks.groupBy{runCatching{trackedDay(it.startedAt,settings.dayStartHour)}.getOrNull()}.filterKeys{it!=null}.mapKeys{it.key!!}.mapValues{(_,r)->r.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}
+    val observed=(byDay.keys+tracked.filter{it.sober}.map{LocalDate.parse(it.day)}).toSortedSet();var streak=0;var best=0;var previous:LocalDate?=null;for(day in observed){if(previous?.plusDays(1)!=day)streak=0;if((byDay[day]?:0.0)==0.0){streak++;best=maxOf(best,streak)}else streak=0;previous=day}
+    val values=observed.map{byDay[it]?:0.0};val reduction=if(values.size>=60){val previous=values.takeLast(60).take(30).average();val latest=values.takeLast(30).average();if(previous>0)maxOf(0.0,(previous-latest)/previous*100)else 0.0}else 0.0
+    data class Def(val id:String,val title:String,val desc:String,val current:Double,val target:Double,val cat:String)
+    val defs=mutableListOf<Def>();listOf(1 to "Premier pas",3 to "Carnet ouvert",7 to "Une semaine de données",14 to "Deux semaines de données",30 to "Un mois documenté",60 to "Suivi régulier",90 to "Un trimestre documenté",180 to "Six mois de recul",365 to "Une année de données").forEach{(n,t)->defs+=Def("logged_$n",t,"$n journée${if(n>1)"s"else""} renseignée${if(n>1)"s"else""}",observed.size.toDouble(),n.toDouble(),"tracking")}
+    listOf(3,7,14,30).forEach{n->defs+=Def("dry_$n",if(n==3)"Respiration"else if(n==7)"Semaine claire"else if(n==14)"Cap des deux semaines"else"Mois sans alcool","$n jours consécutifs sans alcool",best.toDouble(),n.toDouble(),"streak")}
+    defs+=Def("reduce_10","Tendance inversée","Moyenne mobile 30 jours réduite d’au moins 10 %",reduction,10.0,"reduction");defs+=Def("reduce_25","Virage durable","Moyenne mobile 30 jours réduite d’au moins 25 %",reduction,25.0,"reduction")
+    val months=observed.groupBy{java.time.YearMonth.from(it)}.toSortedMap().values.map{days->days.sumOf{byDay[it]?:0.0}};val monthReduction=if(months.size>=2&&months[months.lastIndex-1]>0)maxOf(0.0,(months[months.lastIndex-1]-months.last())/months[months.lastIndex-1]*100)else 0.0;defs+=Def("month_10","Mois en progrès","Diminution mensuelle d’au moins 10 %",monthReduction,10.0,"calendar")
+    listOf(1 to "Premier check-in",7 to "Prendre du recul",30 to "Repères réguliers",90 to "Habitude de réflexion").forEach{(n,t)->defs+=Def("checkin_$n",t,"$n check-in${if(n>1)"s"else""} personnel${if(n>1)"s"else""} complété${if(n>1)"s"else""}",checkIns.size.toDouble(),n.toDouble(),"checkin")}
+    val achieved=goals.count{it.achieved};listOf(1,3,5,10).forEach{n->defs+=Def("goals_$n",if(n==1)"Premier objectif atteint"else"$n objectifs atteints","$n objectif${if(n>1)"s"else""} personnel${if(n>1)"s"else""} atteint${if(n>1)"s"else""}",achieved.toDouble(),n.toDouble(),"goal")}
+    var weekendStreak=0;val today=LocalDate.now();var monday=today.minusDays(today.dayOfWeek.value-1L).minusWeeks(1);while(monday>=observed.firstOrNull()?.minusDays(6)?:today){val days=(0L..6L).map{monday.plusDays(it)};if(days.all{it in observed}&&days.take(5).all{(byDay[it]?:0.0)==0.0}&&days.takeLast(2).any{(byDay[it]?:0.0)>0})weekendStreak++ else if(weekendStreak>0)break;monday=monday.minusWeeks(1)};listOf(2,4,8,12).forEach{n->defs+=Def("weekend_$n",when(n){2->"Guerrier du week-end · 2 semaines";4->"Guerrier du week-end · 1 mois";8->"Guerrier du week-end · 2 mois";else->"Guerrier du week-end · 3 mois"},"Consommation limitée au samedi et dimanche pendant $n semaines complètes",weekendStreak.toDouble(),n.toDouble(),"weekend")}
+    val badges=JSONArray();defs.forEach{d->badges.put(JSONObject().put("id",d.id).put("title",d.title).put("description",d.desc).put("unlocked",d.current>=d.target).put("current",minOf(d.current,d.target)).put("target",d.target).put("progress_percent",minOf(100.0,d.current/d.target*100)).put("category",d.cat))};return JSONObject().put("badges",badges)
 }
 
 /* ---------- Objectifs ---------- */
@@ -547,30 +578,23 @@ private fun durationText(g: JSONObject): String = when (g.optString("temporal_mo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GoalsScreen(context: Context) {
-    var goals by remember { mutableStateOf<JSONArray?>(null) }
+fun GoalsScreen(repository:SyncRepository,localGoals:List<GoalEntity>,drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,settings:LocalSettings,onSync:()->Unit) {
+    val goals=remember(localGoals,drinks,tracked,settings){localGoalRows(localGoals,drinks,tracked,settings)}
     var error by remember { mutableStateOf<String?>(null) }
-    var refreshing by remember { mutableStateOf(false) }
-    var tick by remember { mutableIntStateOf(0) }
     var adding by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(tick) {
-        refreshing = true; error = null
-        runCatching { Net.array(context, "/api/goals") }.onSuccess { goals = it }.onFailure { goals=JSONArray();error = "Hors ligne · les objectifs locaux restent disponibles" }
-        refreshing = false
-    }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { tick++ }
-    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { tick++ }, modifier = Modifier.fillMaxSize()) {
+    LaunchedEffect(goals.toString()){for(i in 0 until goals.length()){val g=goals.getJSONObject(i);val reached=if(g.optString("temporal_mode")=="consecutive_weeks")g.optInt("consecutive_weeks_achieved")>=g.optInt("consecutive_weeks",1)else g.optBoolean("on_track");if(reached)repository.markGoalAchieved(g.getString("client_id"))}}
+    PullToRefreshBox(isRefreshing = false, onRefresh = onSync, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             PageHeaderLite("Suivi", "Objectifs")
             Button(onClick = { adding = true }, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) { Text("Ajouter un objectif") }
             error?.let { Text(it, Modifier.padding(20.dp), color = Pine.copy(alpha = .7f)) }
             val list = goals
-            if (list != null && list.length() == 0) SectionCard("Aucun objectif") {
+            if (list.length() == 0) SectionCard("Aucun objectif") {
                 Text("Ajoute un objectif pour suivre ta progression semaine après semaine.", color = Pine.copy(alpha = .7f))
             }
-            for (i in 0 until (list?.length() ?: 0)) {
-                val g = list!!.optJSONObject(i) ?: continue
+            for (i in 0 until list.length()) {
+                val g = list.optJSONObject(i) ?: continue
                 SectionCard(GOAL_LABELS[g.optString("kind")] ?: g.optString("kind")) {
                     StatRow("Cible", fmt(g.numOrNull("target"), 1))
                     StatRow("Actuel", fmt(g.numOrNull("current"), 1))
@@ -584,8 +608,8 @@ fun GoalsScreen(context: Context) {
                     if (!g.optBoolean("active")) Text("En pause", style = MaterialTheme.typography.labelMedium, color = Amber)
                     TextButton(onClick = {
                         scope.launch {
-                            runCatching { Net.send(context, "/api/goals/${g.optInt("id")}", JSONObject(), "DELETE") }
-                                .onSuccess { tick++ }.onFailure { error = it.message }
+                            runCatching { repository.deleteGoal(g.getString("client_id")) }
+                                .onSuccess { onSync() }.onFailure { error = it.message }
                         }
                     }) { Text("Retirer", color = Color(0xFFD9534F)) }
                 }
@@ -595,9 +619,19 @@ fun GoalsScreen(context: Context) {
     }
     if (adding) GoalDialog(onDismiss = { adding = false }) { payload ->
         scope.launch {
-            runCatching { Net.send(context, "/api/goals", payload) }.onSuccess { adding = false; tick++ }.onFailure { error = it.message }
+            runCatching { repository.createGoal(payload) }.onSuccess { adding = false;onSync() }.onFailure { error = it.message }
         }
     }
+}
+
+private fun localGoalRows(goals:List<GoalEntity>,drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,settings:LocalSettings):JSONArray{
+    val now=LocalDate.now();val byDay=drinks.groupBy{runCatching{trackedDay(it.startedAt,settings.dayStartHour)}.getOrNull()}.filterKeys{it!=null}.mapKeys{it.key!!}.mapValues{(_,r)->r.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}
+    val monday=now.minusDays(now.dayOfWeek.value-1L);val week=(0L..6L).map{monday.plusDays(it)};val weekGrams=week.sumOf{byDay[it]?:0.0};val weekStd=week.sumOf{day->drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}};val free=week.count{(byDay[it]?:0.0)==0.0&&(it<=now)&&(byDay.containsKey(it)||tracked.any{t->t.day==it.toString()})};val drinking=week.count{(byDay[it]?:0.0)>0}
+    val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();for(d in sorted){val at=runCatching{parseDrinkTime(d.startedAt)}.getOrNull();val end=sessions.lastOrNull()?.lastOrNull()?.let{parseDrinkTime(it.startedAt).plusMinutes(it.durationMinutes.toLong())};if(at==null||end==null||java.time.Duration.between(end,at).toHours()>=settings.sessionGapHours)sessions+=mutableListOf(d)else sessions.last()+=d};val peak=sessions.takeLast(20).maxOfOrNull{r->r.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}?:0.0
+    val recent=(0L..6L).map{now.minusDays(it)}.filter{byDay.containsKey(it)||tracked.any{t->t.day==it.toString()}};val moving=if(recent.isEmpty())0.0 else recent.sumOf{byDay[it]?:0.0}/recent.size
+    val values=mapOf("max_grams_week" to weekGrams,"max_standards" to weekStd,"min_alcohol_free_days" to free.toDouble(),"max_drinking_days" to drinking.toDouble(),"max_grams_session" to peak,"max_moving_7_grams" to moving)
+    fun completedStreak(g:GoalEntity):Int{if(g.kind !in setOf("max_grams_week","max_standards","min_alcohol_free_days","max_drinking_days","max_moving_7_grams"))return 0;var count=0;var start=monday.minusWeeks(1);while(true){val ds=(0L..6L).map{start.plusDays(it)};if(!ds.all{byDay.containsKey(it)||tracked.any{t->t.day==it.toString()}})break;val grams=ds.sumOf{byDay[it]?:0.0};val value=when(g.kind){"max_grams_week"->grams;"max_standards"->ds.sumOf{day->drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}};"min_alcohol_free_days"->ds.count{(byDay[it]?:0.0)==0.0}.toDouble();"max_drinking_days"->ds.count{(byDay[it]?:0.0)>0}.toDouble();else->grams/7};val met=if(g.kind=="min_alcohol_free_days")value>=g.target else value<=g.target;if(!met)break;count++;start=start.minusWeeks(1)};return count}
+    val out=JSONArray();goals.forEach{g->val current=values[g.kind];val onTrack=current?.let{if(g.kind=="min_alcohol_free_days"||g.kind=="monthly_reduction")it>=g.target else it<=g.target};out.put(JSONObject().put("client_id",g.clientId).put("id",g.serverId?:-1).put("kind",g.kind).put("target",g.target).put("active",g.active).put("current",current).put("on_track",onTrack).put("progress_percent",current?.let{if(g.target>0)it/g.target*100 else null}).put("temporal_mode",g.temporalMode).put("consecutive_weeks",g.consecutiveWeeks).put("consecutive_weeks_achieved",completedStreak(g)).put("due_date",g.dueDate).put("days_remaining",g.dueDate?.let{maxOf(0,java.time.temporal.ChronoUnit.DAYS.between(now,LocalDate.parse(it)).toInt())}))};return out
 }
 
 @Composable
