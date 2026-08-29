@@ -37,6 +37,8 @@ class CredentialStore(private val context:Context) {
     fun cacheApi(path:String,value:String){put("api_cache_${path.hashCode()}",value)}
     fun pendingApiOperations():String=get("pending_api_operations","[]")
     fun setPendingApiOperations(value:String){put("pending_api_operations",value)}
+    fun syncDataVersion():Int=get("sync_data_version","0").toIntOrNull()?:0
+    fun setSyncDataVersion(value:Int){put("sync_data_version",value.toString())}
     fun syncEnabled():Boolean=secure.getBoolean("sync_enabled",false)
     fun setSyncEnabled(enabled:Boolean){secure.edit().putBoolean("sync_enabled",enabled).apply()}
     fun save(server:String,token:String){put("server",server.trimEnd('/'));put("token",token);setSyncEnabled(true);legacy.edit().remove("server").remove("token").apply()}
