@@ -30,15 +30,35 @@ class BacMathTest {
         assertEquals(java.time.LocalDate.parse("2026-08-27"),trackedDay("2026-08-27T01:30:00-04:00",0))
     }
 
-    @Test fun oldDrinkHistoryMustNotZeroOutTodaysBac() {
-        val now=OffsetDateTime.parse("2026-08-29T18:00:00-04:00")
+    @Test fun oldFullyEliminatedDrinkMustNotCancelOutABrandNewOne() {
+        // Day starts at 8h; a drink from last night is long metabolized by the time a fresh one
+        // is logged at 7h and checked 15 minutes later, at 7h15 — still before the day boundary.
+        val lastNight=BacDrink(OffsetDateTime.parse("2026-08-28T21:00:00-04:00"),30,13.45)
+        val fresh=BacDrink(OffsetDateTime.parse("2026-08-29T07:00:00-04:00"),30,13.45)
+        val now=OffsetDateTime.parse("2026-08-29T07:15:00-04:00")
         val profile=BacProfile(75.0,.6,.015)
+        assertEquals(0.0,bacAt(listOf(lastNight),profile,now),0.000001)
+        assertTrue(bacAt(listOf(fresh),profile,now)>0.0)
+        assertEquals(bacAt(listOf(fresh),profile,now),bacAt(listOf(lastNight,fresh),profile,now),0.000001)
+    }
+
+    @Test fun stillActiveDrinkKeepsAbsorbingInsteadOfUsingItsStaleZeroDuration() {
+        // A drink started from Wear OS is stored with duration_minutes=0 until it's finished, so
+        // while it's still marked active the absorption window must track real elapsed time
+        // instead of assuming it was downed in the default 30-minute window.
+        val start=OffsetDateTime.parse("2026-08-29T07:00:00-04:00")
+        val moment=start.plusMinutes(45)
+        val profile=BacProfile(75.0,.6,.015)
+        val active=bacAt(listOf(BacDrink(start,0,13.45,active=true)),profile,moment)
+        val finished=bacAt(listOf(BacDrink(start,0,13.45,active=false)),profile,moment)
+        assertTrue(active<finished)
+    }
+
+    @Test fun recentForBacDropsDrinksOutsideTheWindow() {
+        val now=OffsetDateTime.parse("2026-08-29T18:00:00-04:00")
         val monthOldDrink=BacDrink(now.minusDays(30),30,13.45)
         val freshDrink=BacDrink(now.minusMinutes(20),30,13.45)
-        val unfiltered=bacAt(listOf(monthOldDrink,freshDrink),profile,now)
-        assertEquals(0.0,unfiltered,0.000001)
-        val filtered=bacAt(recentForBac(listOf(monthOldDrink,freshDrink),now),profile,now)
-        assertTrue(filtered>0.0)
+        assertEquals(listOf(freshDrink),recentForBac(listOf(monthOldDrink,freshDrink),now))
     }
 
     @Test fun bacUsesCanonicalLocalWallTimeAcrossLegacyOffsets() {
