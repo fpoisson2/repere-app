@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import secrets
 from datetime import datetime, timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -47,7 +48,11 @@ def _redirect_allowed(client_id: str, redirect_uri: str) -> bool:
         return False
     if redirect_uri in allowed:
         return True
-    return redirect_uri.startswith(("http://127.0.0.1", "http://localhost"))
+    try:
+        parsed = urlsplit(redirect_uri)
+        return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"} and bool(parsed.port)
+    except ValueError:
+        return False
 
 
 def _page(body: str, status: int = 200) -> HTMLResponse:
@@ -97,7 +102,7 @@ def authorize(
     if user and request.session.get("session_version") == user.session_version:
         return _page(
             f"<h1>Autoriser l'accès</h1>"
-            f"<p>L'application Repère souhaite accéder à ton compte <b>{user.username}</b> "
+            f"<p>L'application Repère souhaite accéder à ton compte <b>{_esc(user.username)}</b> "
             f"(consommations, statistiques, objectifs, données de santé).</p>"
             f"<form method='post' action='authorize'>{hidden}"
             f"<div class='row'><button class='ghost' name='decision' value='deny'>Refuser</button>"
@@ -233,7 +238,7 @@ def _hidden_fields(client_id: str, redirect_uri: str, code_challenge: str, state
 
 
 def _esc(value: str) -> str:
-    return value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
+    return html.escape(value, quote=True)
 
 
 def _with_params(base: str, params: dict) -> str:

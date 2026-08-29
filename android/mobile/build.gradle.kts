@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -14,7 +15,7 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36
-        versionCode = providers.gradleProperty("MOBILE_VERSION_CODE").orNull?.toInt() ?: 36010017
+        versionCode = providers.gradleProperty("MOBILE_VERSION_CODE").orNull?.toInt() ?: 36010018
         versionName = providers.gradleProperty("MOBILE_VERSION_NAME").orNull ?: "1.7.0"
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -40,8 +41,8 @@ android {
         }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    kotlinOptions { jvmTarget = "17" }
 }
+kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 dependencies {
     implementation(project(":core"))
     implementation(project(":data"))
