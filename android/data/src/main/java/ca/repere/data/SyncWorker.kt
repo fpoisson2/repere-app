@@ -6,10 +6,15 @@ import java.util.concurrent.TimeUnit
 
 /** Entry point for durable synchronization. Network protocol wiring is kept in SyncRepository. */
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result = runCatching {
-        SyncRepository(applicationContext).synchronize()
-        Result.success()
-    }.getOrElse { Result.retry() }
+    override suspend fun doWork(): Result {
+        val repository = SyncRepository(applicationContext)
+        val synced = runCatching { repository.synchronize() }
+        // Refresh the watch's cache even when the server sync itself failed or was skipped:
+        // the estimated BAC keeps decaying with time, so this is the only way the watch's
+        // complication and tile stay current between wear-triggered actions.
+        runCatching { WearStatePublisher.publish(applicationContext, repository.localDrinks(), repository.localSettings()) }
+        return if (synced.isSuccess) Result.success() else Result.retry()
+    }
 
     companion object {
         private const val UNIQUE_NAME = "repere-periodic-sync"

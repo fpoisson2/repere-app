@@ -12,6 +12,7 @@ import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 import ca.repere.data.SyncRepository
 import ca.repere.data.SyncWorker
+import ca.repere.data.WearStatePublisher
 
 /** Relays authenticated Wear requests through the paired phone's network connection. */
 class WearProxyListenerService : WearableListenerService() {

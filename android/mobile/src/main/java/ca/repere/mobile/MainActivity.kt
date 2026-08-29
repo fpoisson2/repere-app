@@ -79,6 +79,7 @@ import ca.repere.data.PresetEntity
 import ca.repere.data.SyncRepository
 import ca.repere.data.SyncWorker
 import ca.repere.data.TrackedDayEntity
+import ca.repere.data.WearStatePublisher
 import ca.repere.data.HealthAggregateEntity
 import ca.repere.data.CheckInEntity
 import ca.repere.data.GoalEntity
@@ -938,7 +939,10 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
         if(granted)scope.launch{CheckInReminder.refreshAndSchedule(context)}
         message=if(granted)"Rappel de check-in activé" else "Autorisation de notification refusée"
     }
-    fun syncToWatch(currentToken:String)=scope.launch{val request=PutDataMapRequest.create("/repere/config").apply{dataMap.putString("server",server.trimEnd('/'));dataMap.putString("token",currentToken);dataMap.putLong("updated",System.currentTimeMillis())}.asPutDataRequest().setUrgent();runCatching{Wearable.getDataClient(context).putDataItem(request).await()}}
+    // Distinct path from "/repere/config" (the consumption/BAC state pushed by WearStatePublisher):
+    // sharing one DataItem meant this credentials-only write clobbered the watch's active-drink
+    // state with defaults (false/0) every time "Synchroniser la montre" was pressed.
+    fun syncToWatch(currentToken:String)=scope.launch{val request=PutDataMapRequest.create("/repere/credentials").apply{dataMap.putString("server",server.trimEnd('/'));dataMap.putString("token",currentToken);dataMap.putLong("updated",System.currentTimeMillis())}.asPutDataRequest().setUrgent();runCatching{Wearable.getDataClient(context).putDataItem(request).await()}}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())){PageHeader("Téléphone et montre","Réglages")
         Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
             OutlinedTextField(server,onServer,label={Text("Adresse du serveur")},modifier=Modifier.fillMaxWidth(),singleLine=true)
