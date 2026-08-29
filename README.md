@@ -1,21 +1,40 @@
 # Repère
 
+**Understand your drinking without giving up your data.**
+
 Repère is a free and open-source alcohol tracking platform for people who want to keep control
-of their infrastructure and personal data.
+of their infrastructure and personal data. It turns habits into useful perspective: the goal is
+to make patterns visible and leave the decisions to the person who knows the context best — you.
 
 It combines a self-hosted web server with an autonomous Android application. The phone remains
 fully usable without an account, Internet connection, or running server. When synchronization is
 enabled, local changes are sent opportunistically to the user's own Repère server and reconciled
 when connectivity returns.
 
+A bilingual public project presentation is served at `/about` on every deployment; the private
+application stays at `/`.
+
 > Blood alcohol concentration values are mathematical estimates, never authorization to drive.
+
+## Why Repère exists
+
+This started as a personal itch: I wanted a Wear OS app to log a drink from my wrist in a couple
+of taps. The apps I tried either didn't fit how I wanted to track, locked useful features behind
+a subscription, or shipped ads and telemetry around personal health data.
+
+I like self-hosted, open-source software, so I went further than a watch tile. Repère is the
+result: a local-first Android app with a Wear OS companion, backed by a server you run yourself.
+No mandatory cloud, no advertising, no analytics phoning home — just your data, on hardware you
+control, in formats you can export.
 
 ## Principles
 
 - **Self-hosted:** run the backend and web interface on hardware you control.
-- **Local-first Android:** record, edit, and review data without network access.
+- **Local-first Android:** record, edit, and review data without network access; the phone is
+  the source of truth.
 - **Optional synchronization:** the server is secondary and never blocks normal phone use.
 - **Private by design:** no mandatory cloud service, advertising, or telemetry.
+- **Perspective, not judgment:** surface trends and estimates; leave the conclusions to you.
 - **Open source:** inspect, modify, and redistribute Repère under the MIT License.
 - **Client parity:** web and Android expose the same primary features and wording.
 
@@ -32,15 +51,17 @@ when connectivity returns.
 
 ## Capabilities
 
-- presets and custom drink entries;
-- offline create, edit, and delete operations;
-- Canadian standard drink and pure alcohol calculations;
-- progressive BAC estimation with a locally stored body profile;
-- history, statistics, alcohol-free days, check-ins, goals, achievements, and personal insights;
-- Health Connect daily aggregates;
-- OAuth 2.0 Authorization Code with PKCE for optional Android synchronization;
-- Wear OS quick entry and complications;
-- JSON/CSV export and a documented REST API.
+- **Quick tracking:** presets and custom drink entries, offline create/edit/delete, sober days,
+  and daily check-ins;
+- **Personal trends:** history, statistics, goals, achievements, and change over time;
+- **BAC estimate:** progressive estimation from a locally stored body profile, using one
+  consistent model across server and mobile, always paired with a driving warning;
+- **Canadian standard drink** and pure alcohol calculations;
+- **Health and watch:** Health Connect daily aggregates and a Wear OS companion with quick entry
+  and complications;
+- **Optional sync:** OAuth 2.0 Authorization Code with PKCE for Android synchronization to your
+  own server;
+- **Your data out:** JSON/CSV export and a documented REST API.
 
 ## Quick start with Docker Compose
 
