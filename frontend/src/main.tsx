@@ -39,6 +39,7 @@ const APP_VERSION=import.meta.env.VITE_APP_VERSION || packageInfo.version;
 const SUPPORT_URL="https://buymeacoffee.com/fpoisson";
 const ISSUES_URL="https://github.com/fpoisson2/repere-app/issues";
 const PLAY_STORE_URL="https://play.google.com/store/apps/details?id=ca.repere.app";
+const localDateISO=(value=new Date())=>new Date(value.getTime()-value.getTimezoneOffset()*60_000).toISOString().slice(0,10);
 type Preset = {
   id: number;
   name: string;
@@ -208,7 +209,7 @@ function App() {
     [addMenu, setAddMenu] = useState(false),
     [moodModal, setMoodModal] = useState<any>(),
     [selectedDate, setSelectedDate] = useState(
-      new Date().toISOString().slice(0, 10),
+      localDateISO(),
     ),
     [online, setOnline] = useState(navigator.onLine),
     [queued, setQueued] = useState(readQueue().length),
@@ -622,7 +623,7 @@ function Dashboard({
             </span>
             <input
               type="date"
-              max={new Date().toISOString().slice(0, 10)}
+              max={localDateISO()}
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
             />
@@ -630,7 +631,7 @@ function Dashboard({
           <button
             className="iconbutton"
             onClick={() => moveDay(1)}
-            disabled={selectedDate >= new Date().toISOString().slice(0, 10)}
+            disabled={selectedDate >= localDateISO()}
             aria-label="Journée suivante"
           >
             <ChevronRight size={20} />
@@ -2206,7 +2207,7 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
   const [observed, setObserved] = useState("90"),
     [metric, setMetric] = useState<"grams" | "standards">("grams"),
     [customStart, setCustomStart] = useState(""),
-    [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10)),
+    [customEnd, setCustomEnd] = useState(localDateISO()),
     allRows = trends.moving_averages["7"] || [],
     rows = observed === "all"
       ? allRows
@@ -2308,7 +2309,7 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
               type="date"
               value={customEnd}
               min={customStart}
-              max={new Date().toISOString().slice(0, 10)}
+              max={localDateISO()}
               onChange={(event) => setCustomEnd(event.target.value)}
             />
           </label>
@@ -2703,7 +2704,7 @@ function Goals() {
               Date d’échéance
               <input
                 type="date"
-                min={new Date().toISOString().slice(0, 10)}
+                min={localDateISO()}
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
@@ -2846,7 +2847,7 @@ function GoalEditor({
               Date d’échéance
               <input
                 type="date"
-                min={new Date().toISOString().slice(0, 10)}
+                min={localDateISO()}
                 value={dueDate}
                 onChange={(event) => setDueDate(event.target.value)}
               />

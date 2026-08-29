@@ -29,6 +29,7 @@ class SyncRepository(context: Context) {
     fun observeGoals():Flow<List<GoalEntity>> = dao.observeGoals()
     fun observeSettings():Flow<LocalSettings?> = dao.observeSettings()
     suspend fun recentStartTimes():List<String> = dao.recentStartTimes()
+    suspend fun localDayStartHour():Int = dao.settings()?.dayStartHour ?: 8
 
     suspend fun ensureOfflineDefaults(){
         if(dao.settings()==null)dao.putSettings(LocalSettings())
