@@ -99,14 +99,23 @@ jobs:
             android/wear/build/outputs/bundle/release/wear-release.aab
             android/wear/build/outputs/mapping/release/mapping.txt
 
+      - name: Vérifier les versions mobile et Wear
+        shell: bash
+        run: |
+          jq -e --arg name "${{ steps.version.outputs.mobile_name }}" --argjson code "${{ steps.version.outputs.mobile_code }}" \
+            '.elements[0].versionName == $name and .elements[0].versionCode == $code' \
+            mobile/build/outputs/apk/release/output-metadata.json
+          jq -e --arg name "${{ steps.version.outputs.wear_name }}" --argjson code "${{ steps.version.outputs.wear_code }}" \
+            '.elements[0].versionName == $name and .elements[0].versionCode == $code' \
+            wear/build/outputs/apk/release/output-metadata.json
+          test "${{ steps.version.outputs.mobile_name }}" = "${{ steps.version.outputs.wear_name }}"
+
       - name: Publier sur la piste de test interne
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: ca.repere.app
-          releaseFiles: >-
-            android/mobile/build/outputs/bundle/release/mobile-release.aab,
-            android/wear/build/outputs/bundle/release/wear-release.aab
+          releaseFiles: android/mobile/build/outputs/bundle/release/mobile-release.aab,android/wear/build/outputs/bundle/release/wear-release.aab
           tracks: internal
           status: completed
           releaseName: ${{ steps.version.outputs.release_name }}
