@@ -136,13 +136,14 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     fun synchronize()=scope.launch {
         if(token.isBlank()||!syncEnabled)return@launch
         syncing=true;status="Synchronisation…"
-        runCatching{Net.flush(context);repository.synchronize()}.onSuccess{status="À jour";pokeWatch(context)}
+        runCatching{Net.flush(context);repository.synchronize()}.onSuccess{status="À jour";WearStatePublisher.publish(context,drinks,localSettings?:LocalSettings())}
             .onFailure{status="Hors ligne · les saisies sont conservées"}
         syncing=false
     }
     LaunchedEffect(Unit){repository.ensureOfflineDefaults()}
     LaunchedEffect(Unit){availableUpdate=runCatching{updateManager.appUpdateInfo.await()}.getOrNull()?.takeIf{it.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&it.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)}}
     LaunchedEffect(token,syncEnabled){if(token.isNotBlank()&&syncEnabled)synchronize()}
+    LaunchedEffect(drinks,localSettings){WearStatePublisher.publish(context,drinks,localSettings?:LocalSettings())}
     // Re-read credentials (e.g. after the OAuth browser redirect) and refresh whenever the app returns to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME){
         server=credentials.server(BuildConfig.DEFAULT_SERVER_URL);token=credentials.token();syncEnabled=credentials.syncEnabled()
@@ -177,15 +178,6 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
             availableUpdate?.let{info->Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_available),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))}}){Text(stringResource(R.string.update_action))}}}}
         }
     }
-}
-
-/** Nudge the watch to refresh its complication after the phone changes drink data. */
-private fun pokeWatch(context:Context){
-    val request=PutDataMapRequest.create("/repere/config").apply{
-        dataMap.putLong("synced_at",System.currentTimeMillis())
-        CredentialStore(context).let{dataMap.putString("server",it.server().trimEnd('/'));dataMap.putString("token",it.token())}
-    }.asPutDataRequest().setUrgent()
-    runCatching{Wearable.getDataClient(context).putDataItem(request)}
 }
 
 @Composable

@@ -18,15 +18,17 @@ fun distributionRatio(sex:String,heightCm:Double?,weightKg:Double,stored:Double=
 
 /** Android equivalent of backend services.bac_at. Keep both implementations aligned. */
 fun bacAt(drinks:List<BacDrink>,profile:BacProfile,moment:OffsetDateTime):Double {
+    val localMoment=moment.toLocalDateTime()
     var absorbed=0.0;var eliminated=0.0
     drinks.forEach { drink ->
-        if(!moment.isAfter(drink.startedAt))return@forEach
+        val localStart=drink.startedAt.toLocalDateTime()
+        if(!localMoment.isAfter(localStart))return@forEach
         val absorptionMinutes=max(30,drink.durationMinutes+30)
-        val elapsedMinutes=java.time.Duration.between(drink.startedAt,moment).toMillis()/60_000.0
+        val elapsedMinutes=java.time.Duration.between(localStart,localMoment).toMillis()/60_000.0
         val fraction=(elapsedMinutes/absorptionMinutes).coerceIn(0.0,1.0)
         absorbed+=drink.alcoholGrams*fraction
-        val fullAt=drink.startedAt.plusMinutes(absorptionMinutes.toLong())
-        val eliminationHours=max(0.0,java.time.Duration.between(fullAt,moment).toMillis()/3_600_000.0)
+        val fullAt=localStart.plusMinutes(absorptionMinutes.toLong())
+        val eliminationHours=max(0.0,java.time.Duration.between(fullAt,localMoment).toMillis()/3_600_000.0)
         eliminated+=profile.eliminationRate*eliminationHours*profile.weightKg*profile.distributionRatio*10
     }
     val remaining=max(0.0,absorbed-eliminated)
