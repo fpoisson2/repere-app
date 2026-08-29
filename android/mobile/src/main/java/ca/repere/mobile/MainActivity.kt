@@ -36,6 +36,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -44,6 +47,9 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LocalBar
+import androidx.compose.material.icons.filled.Percent
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MonitorHeart
@@ -325,11 +331,14 @@ private fun MaintenantScreen(
     var checkIn by remember { mutableStateOf(false) }
     var dayMessage by remember { mutableStateOf<String?>(null) }
     var soberSuccess by remember { mutableStateOf(false) }
+    var checkInSuccess by remember { mutableStateOf(false) }
     var checkInRefresh by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val refreshing = status.startsWith("Synchronisation")
+    val dayHasCheckIn = remember(checkIns, dayKey, checkInRefresh) { checkIns.any { it.localDate == dayKey } }
     LaunchedEffect(dayKey) { dayMessage = null }
     LaunchedEffect(openCheckIn) { if (openCheckIn) checkIn = true }
+    LaunchedEffect(checkInSuccess) { if (checkInSuccess) { kotlinx.coroutines.delay(2400); checkInSuccess = false } }
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = onSync, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -346,12 +355,33 @@ private fun MaintenantScreen(
             // Action zone stays at the very top: check-in, quick add and custom entry are the most-used gestures.
             EntranceFade {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { checkIn = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.Assignment, null); Spacer(Modifier.width(8.dp)); Text("Check-in")
+                    Button(
+                        onClick = { checkIn = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = if (dayHasCheckIn) ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Pine) else ButtonDefaults.buttonColors(),
+                    ) {
+                        Icon(if (dayHasCheckIn) Icons.Filled.CheckCircle else Icons.AutoMirrored.Filled.Assignment, null)
+                        Spacer(Modifier.width(8.dp)); Text(if (dayHasCheckIn) "Check-in fait" else "Check-in")
                     }
                     OutlinedButton(onClick = { creatingBlank = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
                         Icon(Icons.Filled.LocalBar, null); Spacer(Modifier.width(8.dp)); Text("Ajouter")
                     }
+                }
+            }
+            AnimatedVisibility(
+                visible = checkInSuccess,
+                enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { -it / 2 },
+                exit = androidx.compose.animation.fadeOut(tween(220)),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth()
+                        .background(Mint, RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Filled.CheckCircle, null, tint = Pine)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Check-in enregistré", color = Pine, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                 }
             }
             EntranceFade {
@@ -438,7 +468,7 @@ private fun MaintenantScreen(
         scope.launch {
             runCatching { repository.saveCheckIn(payload) }
                 .onFailure { dayMessage = it.message ?: "Check-in non envoyé" }
-                .onSuccess { dayMessage = "Check-in enregistré localement"; checkInRefresh++;onSync() }
+                .onSuccess { checkInSuccess = true; checkInRefresh++; onSync() }
         }
         checkIn = false
     }
@@ -471,20 +501,75 @@ private fun DrinkEditorDialog(
     var pickTime by remember { mutableStateOf(false) }
     var pickDate by remember { mutableStateOf(false) }
     val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-    AlertDialog(onDismissRequest=onDismiss,title={Text(if(existing==null)"Nouvelle consommation" else "Modifier la consommation")},text={
-        Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            OutlinedTextField(name,{name=it},label={Text("Nom")},singleLine=true)
-            OutlinedTextField(volume,{volume=it.filter(Char::isDigit)},label={Text("Volume (ml)")},singleLine=true,keyboardOptions=numeric)
-            OutlinedTextField(abv,{abv=it.filter{c->c.isDigit()||c=='.'||c==','}},label={Text("Alcool (%)")},singleLine=true,keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal))
-            OutlinedTextField(quantity,{quantity=it.filter(Char::isDigit)},label={Text("Quantité")},singleLine=true,keyboardOptions=numeric)
-            OutlinedTextField(date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)),{},readOnly=true,label={Text("Date")},modifier=Modifier.fillMaxWidth(),trailingIcon={TextButton(onClick={pickDate=true}){Text("Choisir")}})
-            OutlinedTextField(time.format(DateTimeFormatter.ofPattern("HH:mm")),{},readOnly=true,label={Text("Heure de début")},modifier=Modifier.fillMaxWidth(),trailingIcon={TextButton(onClick={pickTime=true}){Text("Choisir")}})
-            OutlinedTextField(duration,{duration=it.filter(Char::isDigit)},label={Text("Durée (minutes)")},singleLine=true,keyboardOptions=numeric)
-        }
-    },confirmButton={TextButton(onClick={
-        val started=date.atTime(time).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
-        onSave(name,volume.toDoubleOrNull()?:333.0,abv.replace(',','.').toDoubleOrNull()?:5.0,quantity.toIntOrNull()?.coerceAtLeast(1)?:1,started,duration.toIntOrNull()?.coerceAtLeast(0)?:30)
-    }){Text(if(existing==null)"Ajouter" else "Enregistrer")}},dismissButton={TextButton(onClick=onDismiss){Text("Annuler")}})
+    val liveStandards = remember(volume, abv, quantity) {
+        val v = volume.toDoubleOrNull() ?: 0.0
+        val a = abv.replace(',', '.').toDoubleOrNull() ?: 0.0
+        val q = quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        canadianStandards(v, a, q)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        icon = { Icon(Icons.Filled.LocalBar, null, tint = Pine) },
+        title = { Text(if (existing == null) "Nouvelle consommation" else "Modifier la consommation", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                OutlinedTextField(
+                    name, { name = it }, label = { Text("Nom") }, singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.LocalBar, null) }, modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        volume, { volume = it.filter(Char::isDigit) }, label = { Text("Volume") }, suffix = { Text("ml") },
+                        singleLine = true, keyboardOptions = numeric, modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        abv, { abv = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, label = { Text("Alcool") }, suffix = { Text("%") },
+                        singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                        leadingIcon = { Icon(Icons.Filled.Percent, null) }, modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(Modifier.fillMaxWidth().background(Paper, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Quantité", Modifier.weight(1f), color = Pine.copy(alpha = .8f))
+                    val q = quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                    OutlinedIconButton(onClick = { quantity = (q - 1).coerceAtLeast(1).toString() }, enabled = q > 1) { Icon(Icons.Filled.Remove, "Diminuer") }
+                    Text(q.toString(), Modifier.padding(horizontal = 18.dp), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    OutlinedIconButton(onClick = { quantity = (q + 1).toString() }) { Icon(Icons.Filled.Add, "Augmenter") }
+                }
+                Row(Modifier.fillMaxWidth().background(Mint, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.EmojiEvents, null, tint = Pine, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "≈ ${String.format(Locale.CANADA_FRENCH, "%.2f", liveStandards)} consommation${if (liveStandards >= 2) "s" else ""} standard${if (liveStandards >= 2) "s" else ""}",
+                        color = Pine, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)), {}, readOnly = true, label = { Text("Date") },
+                        leadingIcon = { Icon(Icons.Filled.CalendarToday, null) }, modifier = Modifier.weight(1f),
+                        trailingIcon = { TextButton(onClick = { pickDate = true }) { Text("Choisir") } },
+                    )
+                    OutlinedTextField(
+                        time.format(DateTimeFormatter.ofPattern("HH:mm")), {}, readOnly = true, label = { Text("Heure") },
+                        leadingIcon = { Icon(Icons.Filled.Schedule, null) }, modifier = Modifier.weight(1f),
+                        trailingIcon = { TextButton(onClick = { pickTime = true }) { Text("Choisir") } },
+                    )
+                }
+                OutlinedTextField(
+                    duration, { duration = it.filter(Char::isDigit) }, label = { Text("Durée") }, suffix = { Text("min") },
+                    singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val started = date.atTime(time).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
+                onSave(name, volume.toDoubleOrNull() ?: 333.0, abv.replace(',', '.').toDoubleOrNull() ?: 5.0, quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1, started, duration.toIntOrNull()?.coerceAtLeast(0) ?: 30)
+            }, shape = RoundedCornerShape(14.dp)) { Text(if (existing == null) "Ajouter" else "Enregistrer") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
     if (pickTime) {
         val state = rememberTimePickerState(initialHour = time.hour, initialMinute = time.minute, is24Hour = true)
         AlertDialog(onDismissRequest={pickTime=false},confirmButton={TextButton(onClick={time=java.time.LocalTime.of(state.hour,state.minute);pickTime=false}){Text("OK")}},dismissButton={TextButton(onClick={pickTime=false}){Text("Annuler")}},text={TimePicker(state=state)})
