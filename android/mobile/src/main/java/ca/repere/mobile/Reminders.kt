@@ -1,33 +1,32 @@
 package ca.repere.mobile
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
+import ca.repere.core.usualOnsetMinutes
 import ca.repere.data.SyncRepository
-import java.time.Duration
 import java.time.LocalTime
-import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Daily "time for a check-in?" nudge, fired [LEAD_MINUTES] before the user's usual drinking
  * onset (median first-drink time across recent history; 19:00 default when there is no history).
  */
 object CheckInReminder {
-    private const val WORK = "repere-checkin-reminder"
     private const val CHANNEL = "checkin_reminder"
     const val LEAD_MINUTES = 90
     private const val DEFAULT_ONSET_MINUTES = 19 * 60
@@ -39,12 +38,13 @@ object CheckInReminder {
 
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(PREF_ENABLED, enabled).apply()
-        if (enabled) schedule(context) else WorkManager.getInstance(context).cancelUniqueWork(WORK)
+        if (enabled) schedule(context) else context.getSystemService(AlarmManager::class.java)?.cancel(pending(context))
     }
 
     /** Recompute the usual onset from local history, then (re)schedule. Call from a coroutine. */
     suspend fun refreshAndSchedule(context: Context) {
-        val onset = usualOnsetMinutes(runCatching { SyncRepository(context).recentStartTimes() }.getOrDefault(emptyList()))
+        val repository=SyncRepository(context)
+        val onset = usualOnsetMinutes(runCatching { repository.recentStartTimes() }.getOrDefault(emptyList()),runCatching{repository.localDayStartHour()}.getOrDefault(8))
         val minute = ((onset - LEAD_MINUTES) % 1440 + 1440) % 1440
         prefs(context).edit().putInt(PREF_MINUTE, minute).apply()
         schedule(context)
@@ -59,25 +59,11 @@ object CheckInReminder {
         val now = ZonedDateTime.now(zone)
         var next = now.toLocalDate().atTime(time).atZone(zone)
         if (!next.isAfter(now.plusMinutes(1))) next = next.plusDays(1)
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            WORK, ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<Worker>()
-                .setInitialDelay(Duration.between(now, next).toMillis().coerceAtLeast(60_000), java.util.concurrent.TimeUnit.MILLISECONDS)
-                .build(),
-        )
+        val alarm=context.getSystemService(AlarmManager::class.java)?:return
+        alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,next.toInstant().toEpochMilli(),pending(context))
     }
 
-    private fun usualOnsetMinutes(times: List<String>): Int {
-        val firstPerDay = HashMap<String, Int>()
-        for (raw in times) {
-            val t = runCatching { OffsetDateTime.parse(raw) }.getOrNull() ?: continue
-            val key = t.toLocalDate().toString()
-            val mins = t.hour * 60 + t.minute
-            firstPerDay[key] = minOf(firstPerDay[key] ?: Int.MAX_VALUE, mins)
-        }
-        val values = firstPerDay.values.sorted()
-        return if (values.isEmpty()) DEFAULT_ONSET_MINUTES else values[values.size / 2]
-    }
+    private fun pending(context:Context)=PendingIntent.getBroadcast(context,4201,Intent(context,Receiver::class.java).setAction(ACTION),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     fun notify(context: Context) {
         ensureChannel(context)
@@ -111,13 +97,14 @@ object CheckInReminder {
         }
     }
 
-    class Worker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
-        override suspend fun doWork(): Result {
-            if (isEnabled(applicationContext)) {
-                notify(applicationContext)
-                refreshAndSchedule(applicationContext) // chain the next day, re-reading history
-            }
-            return Result.success()
+    class Receiver:BroadcastReceiver(){
+        override fun onReceive(context:Context,intent:Intent){
+            if(!isEnabled(context))return
+            if(intent.action==ACTION)notify(context)
+            val pendingResult=goAsync()
+            CoroutineScope(SupervisorJob()+Dispatchers.IO).launch{try{refreshAndSchedule(context)}finally{pendingResult.finish()}}
         }
     }
+
+    private const val ACTION="ca.repere.app.CHECK_IN_REMINDER"
 }

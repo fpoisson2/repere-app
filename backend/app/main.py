@@ -158,8 +158,8 @@ def wear_state(now:str|None=None,u:User=Depends(wear_user),db:Session=Depends(ge
         except Exception:pass
     today=(ref-timedelta(hours=u.day_start_hour)).date()
     today_standard=db.scalar(select(func.coalesce(func.sum(Drink.canadian_standard_drinks),0.0)).where(Drink.user_id==u.id,Drink.local_date==today))
-    recent=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.started_at>=datetime.now()-timedelta(hours=36))).all()
-    projection=bac_projection(recent,u)
+    recent=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.started_at>=ref-timedelta(hours=36))).all()
+    projection=bac_projection(recent,u,ref)
     return {"active":wear_drink_out(active) if active else None,"today_standard_drinks":round(float(today_standard or 0.0),1),
       "bac_g_per_l":round(projection["current_bac_percent"]*10,3),"bac_trend":projection["trend"],
       "bac_zero_at":projection["estimated_zero_at"],"server_time":datetime.now()}

@@ -29,4 +29,10 @@ class BacMathTest {
         assertEquals(java.time.LocalDate.parse("2026-08-27"),trackedDay("2026-08-27T09:00:00-04:00",8))
         assertEquals(java.time.LocalDate.parse("2026-08-27"),trackedDay("2026-08-27T01:30:00-04:00",0))
     }
+
+    @Test fun usualOnsetUsesTrackedDaysAcrossMidnight() {
+        val times=listOf("2026-08-20T22:00:00-04:00","2026-08-21T01:00:00-04:00",
+            "2026-08-21T23:00:00-04:00","2026-08-22T02:00:00-04:00","2026-08-22T22:30:00-04:00")
+        assertEquals(22*60+30,usualOnsetMinutes(times,8))
+    }
 }

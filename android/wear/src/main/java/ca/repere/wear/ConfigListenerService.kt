@@ -21,9 +21,10 @@ class ConfigListenerService : WearableListenerService() {
         // The phone bumps /repere/config after each successful sync; refresh the complication so a
         // drink deleted or edited on the phone shows up on the watch face without opening the app.
         if (touched) {
-            ComplicationDataSourceUpdateRequester
-                .create(this, ComponentName(this, QuickDrinkComplicationService::class.java))
-                .requestUpdateAll()
+            listOf(QuickDrinkComplicationService::class.java,BacComplicationService::class.java).forEach{service->
+                ComplicationDataSourceUpdateRequester.create(this,ComponentName(this,service)).requestUpdateAll()
+            }
+            androidx.wear.tiles.TileService.getUpdater(this).requestUpdate(RepereTileService::class.java)
         }
     }
 }

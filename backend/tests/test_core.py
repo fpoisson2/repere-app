@@ -70,6 +70,7 @@ def test_wear_pair_start_and_finish(client):
     assert state["active"] is None and state["today_standard_drinks"]==0
     dated=client.get("/api/wear/state?now=2026-08-25T20:00:00",headers=headers).json()
     assert dated["today_standard_drinks"]==pytest.approx(finished["canadian_standard_drinks"],abs=0.05)
+    assert dated["bac_g_per_l"]>0
     today=client.post("/api/wear/start",headers={**headers,"Idempotency-Key":"wear-test-2"},json={"preset_id":presets[0]["id"],"quantity":1}).json()
     assert client.get("/api/wear/state",headers=headers).json()["today_standard_drinks"]==pytest.approx(today["canadian_standard_drinks"],abs=0.05)
 
