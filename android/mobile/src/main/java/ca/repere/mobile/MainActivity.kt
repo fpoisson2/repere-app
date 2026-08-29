@@ -84,6 +84,11 @@ import ca.repere.data.CheckInEntity
 import ca.repere.data.GoalEntity
 import ca.repere.data.LocalSettings
 import ca.repere.core.canadianStandards
+import ca.repere.core.CANADIAN_STANDARD_GRAMS
+import ca.repere.core.US_STANDARD_GRAMS
+import ca.repere.core.UK_STANDARD_GRAMS
+import ca.repere.core.mlToOunces
+import ca.repere.core.ouncesToMl
 import ca.repere.core.CredentialStore
 import ca.repere.core.BacDrink
 import ca.repere.core.BacProfile
@@ -97,6 +102,7 @@ import ca.repere.data.HealthLocalRepository
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -165,6 +171,10 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     var availableUpdate by remember{mutableStateOf<AppUpdateInfo?>(null)}
     var updateReadyToInstall by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
+    val snackbarHostState=remember{SnackbarHostState()}
+    var hiddenDrinkIds by remember{mutableStateOf(setOf<String>())}
+    var pendingDeleteJob by remember{mutableStateOf<Job?>(null)}
+    val visibleDrinks=remember(drinks,hiddenDrinkIds){drinks.filter{it.clientId !in hiddenDrinkIds}}
 
     fun synchronize()=scope.launch {
         if(token.isBlank()||!syncEnabled)return@launch
@@ -172,6 +182,18 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
         runCatching{Net.flush(context);repository.synchronize()}.onSuccess{status="À jour";WearStatePublisher.publish(context,drinks,localSettings?:LocalSettings())}
             .onFailure{status="Hors ligne · les saisies sont conservées"}
         syncing=false
+    }
+    // Deletion is deferred behind an undo window: the row disappears from view immediately,
+    // but nothing is written to Room (and thus nothing can be pushed to the server) until the
+    // snackbar times out without the user tapping "Annuler".
+    fun requestDelete(id:String){
+        hiddenDrinkIds=hiddenDrinkIds+id
+        pendingDeleteJob?.cancel()
+        pendingDeleteJob=scope.launch {
+            val result=snackbarHostState.showSnackbar("Consommation supprimée",actionLabel="Annuler",duration=SnackbarDuration.Short)
+            if(result==SnackbarResult.ActionPerformed){hiddenDrinkIds=hiddenDrinkIds-id}
+            else{repository.markDeleted(id);status="Suppression en attente";synchronize();hiddenDrinkIds=hiddenDrinkIds-id}
+        }
     }
     // Re-checked on every resume (not just on first launch) since a background download can finish, or
     // become available, while the app sits idle; startUpdateFlow is only triggered when showFlow=true.
@@ -207,7 +229,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
         scope.launch{checkForUpdates()}
     }
 
-    Scaffold(containerColor=Paper,bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.filter{it.inBar}.forEach{item ->
+    Scaffold(containerColor=Paper,snackbarHost={SnackbarHost(snackbarHostState)},bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.filter{it.inBar}.forEach{item ->
         val label=stringResource(item.labelRes)
         NavigationBarItem(selected=destination==item,onClick={destination=item},
             icon={Icon(item.icon,contentDescription=label)},
@@ -215,20 +237,20 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     }}}){padding ->
         Box(Modifier.padding(padding).fillMaxSize()){
             when(destination){
-                Destination.NOW -> MaintenantScreen(context,repository,drinks,presets,trackedDays,checkIns,localSettings?:LocalSettings(),status,openCheckIn,{synchronize()},
+                Destination.NOW -> MaintenantScreen(context,repository,visibleDrinks,presets,trackedDays,checkIns,localSettings?:LocalSettings(),status,openCheckIn,{synchronize()},
                     onCustom={name,volume,abv,quantity,startedAt,duration -> scope.launch{
                         repository.createCustom(name,volume,abv,quantity,startedAt,duration);status=if(syncEnabled)"En attente d’envoi" else "Conservé localement";synchronize()
                     }},
                     onEdit={id,name,volume,abv,quantity,startedAt,duration -> scope.launch{
                         repository.updateOffline(id,name,volume,abv,quantity,startedAt,duration);status="Modification en attente";synchronize()
                     }},
-                    onDelete={id -> scope.launch{repository.markDeleted(id);status="Suppression en attente";synchronize()}},
+                    onDelete={id -> requestDelete(id)},
                     onSober={day,sober->scope.launch{repository.setSoberDay(day,sober)}})
                 Destination.STATS -> StatsScreen(context,analysisDrinks,trackedDays,healthRows,localSettings?:LocalSettings())
                 Destination.INSIGHTS -> InsightsScreen(analysisDrinks,checkIns,localSettings?:LocalSettings())
                 Destination.SUCCESS -> SuccessScreen(analysisDrinks,trackedDays,checkIns,goals,localSettings?:LocalSettings())
                 Destination.GOALS -> GoalsScreen(repository,goals,drinks,trackedDays,localSettings?:LocalSettings(),{synchronize()})
-                Destination.HISTORY -> HistoryScreen(drinks){clientId -> scope.launch{repository.markDeleted(clientId);status=if(syncEnabled)"Suppression en attente" else "Suppression locale";synchronize()}}
+                Destination.HISTORY -> HistoryScreen(visibleDrinks){clientId -> requestDelete(clientId)}
                 Destination.HEALTH -> HealthScreen(context,server,token)
                 Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH},onCheckUpdates={checkForUpdates(showFlow=true)})
             }
@@ -418,7 +440,7 @@ private fun MaintenantScreen(
                 val dIsToday = d == LocalDate.now()
                 val dKey = d.toString()
                 val dDrinks = drinks.filter { runCatching { trackedDay(it.startedAt, settings.dayStartHour) == d }.getOrDefault(false) }.sortedBy { it.startedAt }
-                val dStandards = dDrinks.sumOf { canadianStandards(it.volumeMl, it.abvPercent, it.quantity) }
+                val dStandards = dDrinks.sumOf { canadianStandards(it.volumeMl, it.abvPercent, it.quantity, settings.standardDrinkGrams) }
                 val dStatus = if (dDrinks.isNotEmpty()) null else if (trackedDays.any { it.day == dKey && it.sober }) "sober" else null
                 Column {
                     DaySummaryCard(dIsToday, dKey, dStandards, status)
@@ -461,9 +483,9 @@ private fun MaintenantScreen(
     }
     val prefill = creatingFrom
     editingPreset?.let { p -> PresetEditorDialog(repository, p, onDismiss = { editingPreset = null }) { editingPreset = null; onSync() } }
-    if (creatingBlank) DrinkEditorDialog(day, null, onDismiss = { creatingBlank = false }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingBlank = false }
-    if (prefill != null) DrinkEditorDialog(day, null, prefillName = prefill.name, prefillVolume = prefill.volumeMl.toInt(), prefillAbv = prefill.abvPercent, onDismiss = { creatingFrom = null }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingFrom = null }
-    editing?.let { d -> DrinkEditorDialog(day, d, onDismiss = { editing = null }) { n, v, a, q, started, dur -> onEdit(d.clientId, n, v, a, q, started, dur); editing = null } }
+    if (creatingBlank) DrinkEditorDialog(day, null, standardGrams = settings.standardDrinkGrams, volumeUnit = settings.volumeUnit, onDismiss = { creatingBlank = false }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingBlank = false }
+    if (prefill != null) DrinkEditorDialog(day, null, prefillName = prefill.name, prefillVolume = prefill.volumeMl.toInt(), prefillAbv = prefill.abvPercent, standardGrams = settings.standardDrinkGrams, volumeUnit = settings.volumeUnit, onDismiss = { creatingFrom = null }) { n, v, a, q, started, dur -> onCustom(n, v, a, q, started, dur); creatingFrom = null }
+    editing?.let { d -> DrinkEditorDialog(day, d, standardGrams = settings.standardDrinkGrams, volumeUnit = settings.volumeUnit, onDismiss = { editing = null }) { n, v, a, q, started, dur -> onEdit(d.clientId, n, v, a, q, started, dur); editing = null } }
     if (checkIn) CheckInDialog(day, onDismiss = { checkIn = false }) { payload ->
         scope.launch {
             runCatching { repository.saveCheckIn(payload) }
@@ -487,11 +509,15 @@ private fun DrinkEditorDialog(
     day:LocalDate,
     existing:DrinkEntity?,
     prefillName:String="Consommation", prefillVolume:Int=333, prefillAbv:Double=5.0,
+    standardGrams:Double=CANADIAN_STANDARD_GRAMS, volumeUnit:String="ml",
     onDismiss:()->Unit,
     onSave:(String,Double,Double,Int,String,Int)->Unit,
 ) {
+    val isOz = volumeUnit == "oz"
+    fun mlToDisplay(ml:Double) = if (isOz) mlToOunces(ml) else ml
+    fun displayToMl(value:Double) = if (isOz) ouncesToMl(value) else value
     var name by remember{mutableStateOf(existing?.name ?: prefillName)}
-    var volume by remember{mutableStateOf((existing?.volumeMl?.toInt() ?: prefillVolume).toString())}
+    var volumeInput by remember{mutableStateOf(String.format(Locale.CANADA_FRENCH, if (isOz) "%.1f" else "%.0f", mlToDisplay((existing?.volumeMl ?: prefillVolume.toDouble()))))}
     var abv by remember{mutableStateOf((existing?.abvPercent ?: prefillAbv).toString())}
     var quantity by remember{mutableStateOf((existing?.quantity ?: 1).toString())}
     var duration by remember{mutableStateOf((existing?.durationMinutes ?: 30).toString())}
@@ -501,11 +527,12 @@ private fun DrinkEditorDialog(
     var pickTime by remember { mutableStateOf(false) }
     var pickDate by remember { mutableStateOf(false) }
     val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-    val liveStandards = remember(volume, abv, quantity) {
-        val v = volume.toDoubleOrNull() ?: 0.0
+    val decimal = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
+    val liveStandards = remember(volumeInput, abv, quantity) {
+        val v = displayToMl(volumeInput.replace(',', '.').toDoubleOrNull() ?: 0.0)
         val a = abv.replace(',', '.').toDoubleOrNull() ?: 0.0
         val q = quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        canadianStandards(v, a, q)
+        canadianStandards(v, a, q, standardGrams)
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -520,8 +547,9 @@ private fun DrinkEditorDialog(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
-                        volume, { volume = it.filter(Char::isDigit) }, label = { Text("Volume") }, suffix = { Text("ml") },
-                        singleLine = true, keyboardOptions = numeric, modifier = Modifier.weight(1f),
+                        volumeInput, { volumeInput = if (isOz) it.filter { c -> c.isDigit() || c == '.' || c == ',' } else it.filter(Char::isDigit) },
+                        label = { Text("Volume") }, suffix = { Text(if (isOz) "oz" else "ml") },
+                        singleLine = true, keyboardOptions = if (isOz) decimal else numeric, modifier = Modifier.weight(1f),
                     )
                     OutlinedTextField(
                         abv, { abv = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, label = { Text("Alcool") }, suffix = { Text("%") },
@@ -565,7 +593,8 @@ private fun DrinkEditorDialog(
         confirmButton = {
             Button(onClick = {
                 val started = date.atTime(time).atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime().toString()
-                onSave(name, volume.toDoubleOrNull() ?: 333.0, abv.replace(',', '.').toDoubleOrNull() ?: 5.0, quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1, started, duration.toIntOrNull()?.coerceAtLeast(0) ?: 30)
+                val volumeMl = displayToMl(volumeInput.replace(',', '.').toDoubleOrNull() ?: mlToDisplay(333.0))
+                onSave(name, volumeMl, abv.replace(',', '.').toDoubleOrNull() ?: 5.0, quantity.toIntOrNull()?.coerceAtLeast(1) ?: 1, started, duration.toIntOrNull()?.coerceAtLeast(0) ?: 30)
             }, shape = RoundedCornerShape(14.dp)) { Text(if (existing == null) "Ajouter" else "Enregistrer") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
@@ -896,7 +925,9 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
     var showUpToDateDialog by remember{mutableStateOf(false)}
     var dayStart by remember{mutableIntStateOf(localSettings.dayStartHour)};var sessionGap by remember{mutableStateOf(localSettings.sessionGapHours)}
     var trackingStart by remember{mutableStateOf(localSettings.trackingStartDate.orEmpty())}
+    var standardGramsText by remember{mutableStateOf(String.format(Locale.CANADA_FRENCH,"%.2f",localSettings.standardDrinkGrams))};var volumeUnit by remember{mutableStateOf(localSettings.volumeUnit)}
     LaunchedEffect(localSettings.dayStartHour,localSettings.sessionGapHours,localSettings.trackingStartDate){dayStart=localSettings.dayStartHour;sessionGap=localSettings.sessionGapHours;trackingStart=localSettings.trackingStartDate.orEmpty()}
+    LaunchedEffect(localSettings.standardDrinkGrams,localSettings.volumeUnit){standardGramsText=String.format(Locale.CANADA_FRENCH,"%.2f",localSettings.standardDrinkGrams);volumeUnit=localSettings.volumeUnit}
     val exportLauncher=rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv")){uri -> uri?.let{
         runCatching{val quote:(String)->String={value->"\"${value.replace("\"","\"\"")}\""};val csv=buildString{appendLine("name,volume_ml,abv_percent,quantity,started_at,duration_minutes");drinks.forEach{drink->appendLine(listOf(drink.name,drink.volumeMl.toString(),drink.abvPercent.toString(),drink.quantity.toString(),drink.startedAt,drink.durationMinutes.toString()).joinToString(","){quote(it)})}};context.contentResolver.openOutputStream(it)?.bufferedWriter()?.use{writer->writer.write(csv)}}
             .onSuccess{message=context.getString(R.string.export_complete)}.onFailure{message=context.getString(R.string.export_failed)}}
@@ -937,6 +968,32 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
             Button(onClick={scope.launch{val date=trackingStart.trim().takeIf{it.isNotBlank()};if(date!=null&&runCatching{LocalDate.parse(date)}.isFailure){message=context.getString(R.string.invalid_date);return@launch};repository.saveSettings(dayStart,sessionGap,date);message=context.getString(R.string.settings_saved_locally);if(syncEnabled)SyncWorker.schedule(context)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.save_calculation_settings))}
             HorizontalDivider(Modifier.padding(vertical=6.dp))
             BodyMetricsSection(context)
+            HorizontalDivider(Modifier.padding(vertical=6.dp))
+            Text("Unités de mesure",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+            Text("Le nombre de grammes d’alcool pur dans une « consommation standard » varie selon le pays. Ajuste-le si tu préfères une autre référence.",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                listOf("Canada" to CANADIAN_STANDARD_GRAMS,"USA" to US_STANDARD_GRAMS,"UK" to UK_STANDARD_GRAMS,"Australie" to 10.0).forEach{(label,grams)->
+                    val current=standardGramsText.replace(',','.').toDoubleOrNull()
+                    FilterChip(selected=current!=null&&kotlin.math.abs(current-grams)<0.01,onClick={standardGramsText=String.format(Locale.CANADA_FRENCH,"%.2f",grams)},label={Text("$label · ${String.format(Locale.CANADA_FRENCH,"%.2f",grams)} g")})
+                }
+            }
+            OutlinedTextField(
+                standardGramsText, {standardGramsText=it.filter{c->c.isDigit()||c=='.'||c==','}},
+                label={Text("Grammes par consommation standard")},singleLine=true,
+                supportingText={Text("Entre 4 et 30 g")},
+                keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal),
+                modifier=Modifier.fillMaxWidth(),
+            )
+            Text("Unité de volume",fontWeight=FontWeight.Bold)
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                FilterChip(selected=volumeUnit=="ml",onClick={volumeUnit="ml"},label={Text("Millilitres (ml)")})
+                FilterChip(selected=volumeUnit=="oz",onClick={volumeUnit="oz"},label={Text("Onces liquides (oz)")})
+            }
+            Button(onClick={scope.launch{
+                val grams=standardGramsText.replace(',','.').toDoubleOrNull()?.coerceIn(4.0,30.0)?:localSettings.standardDrinkGrams
+                standardGramsText=String.format(Locale.CANADA_FRENCH,"%.2f",grams)
+                repository.saveMeasurementPreferences(grams,volumeUnit);message="Unités de mesure enregistrées";if(syncEnabled)SyncWorker.schedule(context)
+            }},modifier=Modifier.fillMaxWidth()){Text("Enregistrer les unités de mesure")}
             HorizontalDivider(Modifier.padding(vertical=6.dp))
             Text("Application",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){

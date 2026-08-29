@@ -43,6 +43,7 @@ import ca.repere.data.GoalEntity
 import ca.repere.data.LocalSettings
 import ca.repere.data.SyncRepository
 import ca.repere.core.alcoholGrams
+import ca.repere.core.CANADIAN_STANDARD_GRAMS
 import ca.repere.core.canadianStandards
 import ca.repere.core.parseDrinkTime
 import ca.repere.core.trackedDay
@@ -255,7 +256,7 @@ fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<Tra
     var end by remember { mutableStateOf(LocalDate.now()) }
     var custom by remember { mutableStateOf(false) }
     val days=remember(drinks,start,end){generateSequence(start){if(it<end)it.plusDays(1)else null}.map { day ->
-        val rows=drinks.filter { runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false) };val sober=trackedDays.any{it.day==day.toString()&&it.sober};LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)},rows,rows.isNotEmpty()||sober,sober)
+        val rows=drinks.filter { runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false) };val sober=trackedDays.any{it.day==day.toString()&&it.sober};LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,settings.standardDrinkGrams)},rows,rows.isNotEmpty()||sober,sober)
     }.toList()};val observed=days.filter{it.observed};val drinking=days.filter{it.grams>0};val totalStd=observed.sumOf{it.standards};val totalGrams=observed.sumOf{it.grams}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         PageHeaderLite("Analyse", "Stats")
@@ -276,7 +277,7 @@ fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<Tra
         PeriodBars("Évolution par semaine",aggregateLocal(days,false))
         PeriodBars("Évolution par mois",aggregateLocal(days,true),monthly=true)
         LocalHealthSection(healthRows,start,end)
-        SessionsSection(drinking.flatMap{it.drinks})
+        SessionsSection(drinking.flatMap{it.drinks},settings.standardDrinkGrams)
         Spacer(Modifier.height(28.dp))
     }
 }
@@ -311,8 +312,8 @@ private fun aggregateLocal(days:List<LocalStatDay>,monthly:Boolean):List<LocalPe
     rows.takeLast(if(monthly)12 else 6).forEach{val label=if(monthly)runCatching{LocalDate.parse(it.label).format(DateTimeFormatter.ofPattern("MMM yyyy",Locale.CANADA_FRENCH))}.getOrDefault(it.label)else it.label;StatRow(label,"${fmt(it.standards,1)} std · ${it.alcoholFree} j sobres")}
 }}
 
-@Composable private fun SessionsSection(drinks:List<DrinkEntity>){val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();sorted.forEach{d->val at=runCatching{parseDrinkTime(d.startedAt)}.getOrNull();val last=sessions.lastOrNull()?.lastOrNull()?.let{runCatching{parseDrinkTime(it.startedAt).plusMinutes(it.durationMinutes.toLong())}.getOrNull()};if(last==null||at==null||java.time.Duration.between(last,at).toHours()>=8)sessions.add(mutableListOf(d))else sessions.last().add(d)}
-    SectionCard("Sessions","Écart de 8 h · calcul local") { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)};StatRow(rows.first().startedAt.take(10),"${fmt(std,2)} std · ${rows.sumOf{it.quantity}} consommation${if(rows.sumOf{it.quantity}>1)"s"else""}") } }
+@Composable private fun SessionsSection(drinks:List<DrinkEntity>,standardGrams:Double=CANADIAN_STANDARD_GRAMS){val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();sorted.forEach{d->val at=runCatching{parseDrinkTime(d.startedAt)}.getOrNull();val last=sessions.lastOrNull()?.lastOrNull()?.let{runCatching{parseDrinkTime(it.startedAt).plusMinutes(it.durationMinutes.toLong())}.getOrNull()};if(last==null||at==null||java.time.Duration.between(last,at).toHours()>=8)sessions.add(mutableListOf(d))else sessions.last().add(d)}
+    SectionCard("Sessions","Écart de 8 h · calcul local") { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,standardGrams)};StatRow(rows.first().startedAt.take(10),"${fmt(std,2)} std · ${rows.sumOf{it.quantity}} consommation${if(rows.sumOf{it.quantity}>1)"s"else""}") } }
 }
 
 @Composable private fun WeekdayChart(days:List<LocalStatDay>){val labels=listOf("Lun","Mar","Mer","Jeu","Ven","Sam","Dim");val values=(1..7).map{w->days.filter{it.date.dayOfWeek.value==w}.sumOf{it.grams}}
@@ -626,11 +627,11 @@ fun GoalsScreen(repository:SyncRepository,localGoals:List<GoalEntity>,drinks:Lis
 
 private fun localGoalRows(goals:List<GoalEntity>,drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,settings:LocalSettings):JSONArray{
     val now=LocalDate.now();val byDay=drinks.groupBy{runCatching{trackedDay(it.startedAt,settings.dayStartHour)}.getOrNull()}.filterKeys{it!=null}.mapKeys{it.key!!}.mapValues{(_,r)->r.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}
-    val monday=now.minusDays(now.dayOfWeek.value-1L);val week=(0L..6L).map{monday.plusDays(it)};val weekGrams=week.sumOf{byDay[it]?:0.0};val weekStd=week.sumOf{day->drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}};val free=week.count{(byDay[it]?:0.0)==0.0&&(it<=now)&&(byDay.containsKey(it)||tracked.any{t->t.day==it.toString()})};val drinking=week.count{(byDay[it]?:0.0)>0}
+    val monday=now.minusDays(now.dayOfWeek.value-1L);val week=(0L..6L).map{monday.plusDays(it)};val weekGrams=week.sumOf{byDay[it]?:0.0};val weekStd=week.sumOf{day->drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,settings.standardDrinkGrams)}};val free=week.count{(byDay[it]?:0.0)==0.0&&(it<=now)&&(byDay.containsKey(it)||tracked.any{t->t.day==it.toString()})};val drinking=week.count{(byDay[it]?:0.0)>0}
     val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();for(d in sorted){val at=runCatching{parseDrinkTime(d.startedAt)}.getOrNull();val end=sessions.lastOrNull()?.lastOrNull()?.let{parseDrinkTime(it.startedAt).plusMinutes(it.durationMinutes.toLong())};if(at==null||end==null||java.time.Duration.between(end,at).toHours()>=settings.sessionGapHours)sessions+=mutableListOf(d)else sessions.last()+=d};val peak=sessions.takeLast(20).maxOfOrNull{r->r.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}?:0.0
     val recent=(0L..6L).map{now.minusDays(it)}.filter{byDay.containsKey(it)||tracked.any{t->t.day==it.toString()}};val moving=if(recent.isEmpty())0.0 else recent.sumOf{byDay[it]?:0.0}/recent.size
     val values=mapOf("max_grams_week" to weekGrams,"max_standards" to weekStd,"min_alcohol_free_days" to free.toDouble(),"max_drinking_days" to drinking.toDouble(),"max_grams_session" to peak,"max_moving_7_grams" to moving)
-    fun completedStreak(g:GoalEntity):Int{if(g.kind !in setOf("max_grams_week","max_standards","min_alcohol_free_days","max_drinking_days","max_moving_7_grams"))return 0;var count=0;var start=monday.minusWeeks(1);while(true){val ds=(0L..6L).map{start.plusDays(it)};if(!ds.all{byDay.containsKey(it)||tracked.any{t->t.day==it.toString()}})break;val grams=ds.sumOf{byDay[it]?:0.0};val value=when(g.kind){"max_grams_week"->grams;"max_standards"->ds.sumOf{day->drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}};"min_alcohol_free_days"->ds.count{(byDay[it]?:0.0)==0.0}.toDouble();"max_drinking_days"->ds.count{(byDay[it]?:0.0)>0}.toDouble();else->grams/7};val met=if(g.kind=="min_alcohol_free_days")value>=g.target else value<=g.target;if(!met)break;count++;start=start.minusWeeks(1)};return count}
+    fun completedStreak(g:GoalEntity):Int{if(g.kind !in setOf("max_grams_week","max_standards","min_alcohol_free_days","max_drinking_days","max_moving_7_grams"))return 0;var count=0;var start=monday.minusWeeks(1);while(true){val ds=(0L..6L).map{start.plusDays(it)};if(!ds.all{byDay.containsKey(it)||tracked.any{t->t.day==it.toString()}})break;val grams=ds.sumOf{byDay[it]?:0.0};val value=when(g.kind){"max_grams_week"->grams;"max_standards"->ds.sumOf{day->drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,settings.standardDrinkGrams)}};"min_alcohol_free_days"->ds.count{(byDay[it]?:0.0)==0.0}.toDouble();"max_drinking_days"->ds.count{(byDay[it]?:0.0)>0}.toDouble();else->grams/7};val met=if(g.kind=="min_alcohol_free_days")value>=g.target else value<=g.target;if(!met)break;count++;start=start.minusWeeks(1)};return count}
     val out=JSONArray();goals.forEach{g->val current=values[g.kind];val onTrack=current?.let{if(g.kind=="min_alcohol_free_days"||g.kind=="monthly_reduction")it>=g.target else it<=g.target};out.put(JSONObject().put("client_id",g.clientId).put("id",g.serverId?:-1).put("kind",g.kind).put("target",g.target).put("active",g.active).put("current",current).put("on_track",onTrack).put("progress_percent",current?.let{if(g.target>0)it/g.target*100 else null}).put("temporal_mode",g.temporalMode).put("consecutive_weeks",g.consecutiveWeeks).put("consecutive_weeks_achieved",completedStreak(g)).put("due_date",g.dueDate).put("days_remaining",g.dueDate?.let{maxOf(0,java.time.temporal.ChronoUnit.DAYS.between(now,LocalDate.parse(it)).toInt())}))};return out
 }
 

@@ -39,3 +39,5 @@ class SettingsPatch(BaseModel):
     elimination_rate: float | None = Field(default=None, gt=.005, lt=.04)
     session_gap_hours: float | None = Field(default=None, gt=0, le=24)
     day_start_hour: int | None = Field(default=None, ge=0, le=23)
+    standard_drink_grams: float | None = Field(default=None, gt=4, lt=30)
+    volume_unit: str | None = Field(default=None, pattern="^(ml|oz)$")
