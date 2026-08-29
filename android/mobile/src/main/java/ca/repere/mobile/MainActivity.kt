@@ -8,6 +8,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -34,10 +49,17 @@ import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
@@ -219,6 +241,63 @@ private fun PageHeader(eyebrow:String,title:String,trailing:(@Composable () -> U
 }
 
 private val PRESET_NEW = PresetEntity(0L, "", "autre", 333.0, 5.0)
+private const val DAILY_GUIDELINE_STANDARDS = 3.0
+
+/** Pulses only while a sync is in flight, so the dot doesn't animate forever in the background. */
+@Composable
+private fun StatusDot(status: String) {
+    val syncing = status.startsWith("Synchronisation")
+    val color = if (status.startsWith("À jour")) Mint else Amber
+    if (syncing) {
+        val pulse = rememberInfiniteTransition(label = "syncPulse")
+        val alpha by pulse.animateFloat(.4f, 1f, infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse), label = "syncPulseAlpha")
+        Box(Modifier.size(9.dp).alpha(alpha).background(color, RoundedCornerShape(9.dp)))
+    } else {
+        Box(Modifier.size(9.dp).background(color, RoundedCornerShape(9.dp)))
+    }
+}
+
+@Composable
+private fun DaySummaryCard(isToday: Boolean, dayKey: String, standards: Double, status: String) {
+    val animatedStandards by animateFloatAsState(
+        standards.toFloat(),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "standardsValue",
+    )
+    val progress by animateFloatAsState((standards / DAILY_GUIDELINE_STANDARDS).toFloat().coerceIn(0f, 1f), animationSpec = tween(700), label = "standardsProgress")
+    val overGuideline = standards > DAILY_GUIDELINE_STANDARDS
+    Card(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = PineDark), shape = RoundedCornerShape(28.dp)) {
+        Column(Modifier.padding(24.dp)) {
+            Text(if (isToday) "AUJOURD’HUI" else dayKey, color = Mint.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Text(String.format(Locale.CANADA_FRENCH, "%.1f", animatedStandards), color = Color.White, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
+            Text("standard${if (standards >= 2) "s" else ""} canadien${if (standards >= 2) "s" else ""}", color = Mint)
+            Spacer(Modifier.height(14.dp))
+            Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White.copy(alpha = .16f), RoundedCornerShape(6.dp))) {
+                Box(Modifier.fillMaxWidth(progress.coerceAtLeast(.02f)).height(8.dp).background(if (overGuideline) Amber else Mint, RoundedCornerShape(6.dp)))
+            }
+            Text(
+                if (overGuideline) "Au-delà du repère à faible risque (${fmtDouble(DAILY_GUIDELINE_STANDARDS)} std/j)" else "Repère à faible risque : ${fmtDouble(DAILY_GUIDELINE_STANDARDS)} std/j",
+                Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelSmall, color = Mint.copy(alpha = .8f),
+            )
+            if (isToday) {
+                Spacer(Modifier.height(14.dp)); HorizontalDivider(color = Mint.copy(alpha = .25f))
+                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    StatusDot(status)
+                    Spacer(Modifier.width(8.dp)); Text(status, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+private fun fmtDouble(value: Double): String = String.format(Locale.CANADA_FRENCH, "%.0f", value)
+
+/** One-shot fade + rise entrance, used to make the top-of-screen action zone feel alive without looping forever. */
+@Composable
+private fun EntranceFade(content: @Composable () -> Unit) {
+    val state = remember { MutableTransitionState(false) }.apply { targetState = true }
+    AnimatedVisibility(visibleState = state, enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 4 }) { content() }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -231,8 +310,6 @@ private fun MaintenantScreen(
     var day by remember { mutableStateOf(LocalDate.now()) }
     val isToday = day == LocalDate.now()
     val dayKey = day.toString()
-    val dayDrinks = drinks.filter { runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false) }.sortedBy { it.startedAt }
-    val standards = dayDrinks.sumOf { canadianStandards(it.volumeMl, it.abvPercent, it.quantity) }
     var editing by remember { mutableStateOf<DrinkEntity?>(null) }
     var creatingFrom by remember { mutableStateOf<PresetEntity?>(null) }
     var creatingBlank by remember { mutableStateOf(false) }
@@ -240,15 +317,11 @@ private fun MaintenantScreen(
     var checkIn by remember { mutableStateOf(false) }
     var dayMessage by remember { mutableStateOf<String?>(null) }
     var soberSuccess by remember { mutableStateOf(false) }
-    var dayStatus by remember { mutableStateOf<String?>(null) }
     var checkInRefresh by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val refreshing = status.startsWith("Synchronisation")
     LaunchedEffect(dayKey) { dayMessage = null }
     LaunchedEffect(openCheckIn) { if (openCheckIn) checkIn = true }
-    LaunchedEffect(dayKey, dayDrinks.size, trackedDays) {
-        dayStatus = if(dayDrinks.isNotEmpty())null else if(trackedDays.any{it.day==dayKey&&it.sober})"sober" else null
-    }
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = onSync, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -262,80 +335,89 @@ private fun MaintenantScreen(
                 }
                 IconButton(onClick = { day = day.plusDays(1) }, enabled = !isToday) { Icon(Icons.Filled.ChevronRight, "Jour suivant") }
             }
-            Card(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = PineDark), shape = RoundedCornerShape(28.dp)) {
-                Column(Modifier.padding(24.dp)) {
-                    Text(if (isToday) "AUJOURD’HUI" else dayKey, color = Mint.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    Text(String.format(Locale.CANADA_FRENCH, "%.1f", standards), color = Color.White, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
-                    Text("standard${if (standards >= 2) "s" else ""} canadien${if (standards >= 2) "s" else ""}", color = Mint)
-                    if (isToday) {
-                        Spacer(Modifier.height(14.dp)); HorizontalDivider(color = Mint.copy(alpha = .25f))
-                        Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(9.dp).background(if (status.startsWith("À jour")) Mint else Amber, RoundedCornerShape(9.dp)))
-                            Spacer(Modifier.width(8.dp)); Text(status, color = Color.White, style = MaterialTheme.typography.bodySmall)
+            // Action zone stays at the very top: check-in, quick add and custom entry are the most-used gestures.
+            EntranceFade {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = { checkIn = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.Assignment, null); Spacer(Modifier.width(8.dp)); Text("Check-in")
+                    }
+                    OutlinedButton(onClick = { creatingBlank = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Filled.LocalBar, null); Spacer(Modifier.width(8.dp)); Text("Ajouter")
+                    }
+                }
+            }
+            EntranceFade {
+                Column {
+                    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ajouter rapidement", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { editingPreset = PRESET_NEW }) { Text("Nouveau favori") }
+                    }
+                    Text("Appui long sur un favori pour le modifier.", Modifier.padding(start = 20.dp, bottom = 8.dp), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .55f))
+                    if (presets.isEmpty()) Text("Connecte-toi une première fois pour télécharger tes favoris.", Modifier.padding(horizontal = 20.dp), color = Pine.copy(alpha = .65f))
+                    else LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(presets) { preset ->
+                            ElevatedCard(
+                                modifier = Modifier.width(160.dp).combinedClickable(
+                                    onClick = { creatingFrom = preset },
+                                    onLongClick = { if (preset.serverId > 0) editingPreset = preset },
+                                ),
+                                shape = RoundedCornerShape(20.dp),
+                            ) {
+                                Column(Modifier.padding(16.dp)) {
+                                    Text("＋", color = Pine, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Light)
+                                    Spacer(Modifier.height(12.dp))
+                                    Text(preset.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    Text("${preset.volumeMl.toInt()} ml · ${preset.abvPercent}%", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .65f))
+                                }
+                            }
                         }
                     }
                 }
             }
-            if (isToday) BacCard(context,drinks) else if(dayDrinks.isNotEmpty()) HistoricalBacCard(context,dayDrinks)
-            LastCheckInCard(checkIns, day, checkInRefresh)
-            OutlinedButton(onClick = { checkIn = true }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()) {
-                Icon(Icons.AutoMirrored.Filled.Assignment, null); Spacer(Modifier.width(8.dp)); Text("Faire un check-in")
-            }
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Ajouter rapidement", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                TextButton(onClick = { editingPreset = PRESET_NEW }) { Text("Nouveau favori") }
-            }
-            Text("Appui long sur un favori pour le modifier.", Modifier.padding(start = 20.dp, bottom = 8.dp), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .55f))
-            if (presets.isEmpty()) Text("Connecte-toi une première fois pour télécharger tes favoris.", Modifier.padding(horizontal = 20.dp), color = Pine.copy(alpha = .65f))
-            else LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(presets) { preset ->
-                    ElevatedCard(
-                        modifier = Modifier.width(160.dp).combinedClickable(
-                            onClick = { creatingFrom = preset },
-                            onLongClick = { if (preset.serverId > 0) editingPreset = preset },
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("＋", color = Pine, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Light)
-                            Spacer(Modifier.height(12.dp))
-                            Text(preset.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            Text("${preset.volumeMl.toInt()} ml · ${preset.abvPercent}%", style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .65f))
+            HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 18.dp), color = Pine.copy(alpha = .08f))
+            // Everything below reflects the selected day, so it crossfades when day navigation changes it.
+            Crossfade(targetState = day, animationSpec = tween(320), label = "dayContent") { d ->
+                val dIsToday = d == LocalDate.now()
+                val dKey = d.toString()
+                val dDrinks = drinks.filter { runCatching { trackedDay(it.startedAt, settings.dayStartHour) == d }.getOrDefault(false) }.sortedBy { it.startedAt }
+                val dStandards = dDrinks.sumOf { canadianStandards(it.volumeMl, it.abvPercent, it.quantity) }
+                val dStatus = if (dDrinks.isNotEmpty()) null else if (trackedDays.any { it.day == dKey && it.sober }) "sober" else null
+                Column {
+                    DaySummaryCard(dIsToday, dKey, dStandards, status)
+                    if (dIsToday) BacCard(context, drinks) else if (dDrinks.isNotEmpty()) HistoricalBacCard(context, dDrinks)
+                    LastCheckInCard(checkIns, d, checkInRefresh)
+                    Text("Consommations", Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    if (dDrinks.isEmpty()) {
+                        if (dStatus == "sober") {
+                            Text("Journée marquée sobre.", Modifier.padding(horizontal = 20.dp), color = Pine)
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching { Net.send(context, "/api/days/sober/$dKey", JSONObject(), "DELETE") }
+                                            .onSuccess { onSober(dKey,false); dayMessage = "Journée sobre annulée" }
+                                            .onFailure { dayMessage = it.message ?: "Impossible d’annuler" }
+                                    }
+                                },
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth(),
+                            ) { Text("Annuler la journée sobre") }
+                        } else {
+                            Text("Aucune consommation ce jour.", Modifier.padding(horizontal = 20.dp), color = Pine.copy(alpha = .65f))
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        runCatching { Net.send(context, "/api/days/sober", JSONObject().put("date", dKey)) }
+                                            .onSuccess { onSober(dKey,true); soberSuccess = true }
+                                            .onFailure { dayMessage = it.message ?: "Impossible d’enregistrer" }
+                                    }
+                                },
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth(),
+                            ) { Text("Marquer cette journée sobre") }
                         }
                     }
+                    dayMessage?.let { Text(it, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), color = Pine.copy(alpha = .72f)) }
+                    dDrinks.forEach { drink -> DrinkRow(drink, onEdit = { editing = drink }, onDelete = { onDelete(drink.clientId) }) }
                 }
             }
-            OutlinedButton(onClick = { creatingBlank = true }, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth()) { Text("Personnaliser une consommation") }
-            Text("Consommations", Modifier.padding(start = 20.dp, top = 20.dp, bottom = 8.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            if (dayDrinks.isEmpty()) {
-                if (dayStatus == "sober") {
-                    Text("Journée marquée sobre.", Modifier.padding(horizontal = 20.dp), color = Pine)
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                runCatching { Net.send(context, "/api/days/sober/$dayKey", JSONObject(), "DELETE") }
-                                    .onSuccess { onSober(dayKey,false);dayStatus = null; dayMessage = "Journée sobre annulée" }
-                                    .onFailure { dayMessage = it.message ?: "Impossible d’annuler" }
-                            }
-                        },
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth(),
-                    ) { Text("Annuler la journée sobre") }
-                } else {
-                    Text("Aucune consommation ce jour.", Modifier.padding(horizontal = 20.dp), color = Pine.copy(alpha = .65f))
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                runCatching { Net.send(context, "/api/days/sober", JSONObject().put("date", dayKey)) }
-                                    .onSuccess { onSober(dayKey,true);soberSuccess = true; dayStatus = "sober" }
-                                    .onFailure { dayMessage = it.message ?: "Impossible d’enregistrer" }
-                            }
-                        },
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth(),
-                    ) { Text("Marquer cette journée sobre") }
-                }
-            }
-            dayMessage?.let { Text(it, Modifier.padding(horizontal = 20.dp, vertical = 4.dp), color = Pine.copy(alpha = .72f)) }
-            dayDrinks.forEach { d -> DrinkRow(d, onEdit = { editing = d }, onDelete = { onDelete(d.clientId) }) }
             Spacer(Modifier.height(28.dp))
         }
     }
@@ -525,11 +607,12 @@ private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
     val current=bacAt(localDrinks,profile,now)*10;val peak=(peakBac(localDrinks,profile)?:0.0)*10
     val future=bacAt(localDrinks,profile,now.plusMinutes(10))*10;val trend=if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable"
     val zero=(1..24*12).firstOrNull{bacAt(localDrinks,profile,now.plusMinutes(it*5L))<=.00001}?.let{now.plusMinutes(it*5L)}
+    val animatedCurrent by animateFloatAsState(current.toFloat(), animationSpec = tween(650), label = "bacCurrent")
     Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
             Text("ALCOOLÉMIE ESTIMÉE", style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .6f), fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(String.format(Locale.CANADA_FRENCH, "%.2f", current), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black, color = Pine)
+                Text(String.format(Locale.CANADA_FRENCH, "%.2f", animatedCurrent), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black, color = Pine)
                 Spacer(Modifier.width(6.dp)); Text("g/L", color = Pine.copy(alpha = .6f), modifier = Modifier.padding(bottom = 6.dp))
             }
             Text(
@@ -540,10 +623,55 @@ private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
                 },
                 style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .72f),
             )
+            if (current > .001 || localDrinks.isNotEmpty()) BacForecastChart(localDrinks, profile, now, zero)
             Text(
                 "Estimation mathématique — jamais un indicateur de capacité à conduire.",
-                Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall, color = Amber,
+                Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelSmall, color = Amber,
             )
+        }
+    }
+}
+
+/** Draws where the estimated BAC is headed: a recent-past trace plus the forward projection toward zero, with a marker at "now". */
+@Composable
+private fun BacForecastChart(localDrinks: List<BacDrink>, profile: BacProfile, now: OffsetDateTime, zero: OffsetDateTime?) {
+    val pastMinutes = 90L
+    val stepMinutes = 5L
+    val futureMinutes = (zero?.let { java.time.Duration.between(now, it).toMinutes() + 45 } ?: 180L).coerceIn(60L, 8 * 60L)
+    val points = remember(localDrinks, profile, now, futureMinutes) {
+        val list = mutableListOf<Float>()
+        var t = -pastMinutes
+        while (t <= futureMinutes) { list.add((bacAt(localDrinks, profile, now.plusMinutes(t)) * 10).toFloat()); t += stepMinutes }
+        list
+    }
+    if (points.size < 2) return
+    val nowIndex = (pastMinutes / stepMinutes).toInt().coerceIn(0, points.lastIndex)
+    val max = (points.maxOrNull() ?: 0f).coerceAtLeast(.05f)
+    Column(Modifier.padding(top = 14.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(110.dp)) {
+            val stepX = size.width / (points.size - 1)
+            val linePath = Path(); val fillPath = Path()
+            points.forEachIndexed { i, v ->
+                val x = i * stepX; val y = size.height - (v / max * size.height)
+                if (i == 0) { linePath.moveTo(x, y); fillPath.moveTo(x, size.height); fillPath.lineTo(x, y) }
+                else { linePath.lineTo(x, y); fillPath.lineTo(x, y) }
+            }
+            fillPath.lineTo(size.width, size.height); fillPath.close()
+            drawPath(fillPath, Brush.verticalGradient(listOf(Pine.copy(alpha = .26f), Pine.copy(alpha = .02f))))
+            drawPath(linePath, Pine, style = Stroke(width = 4f, cap = StrokeCap.Round))
+            val nowX = nowIndex * stepX
+            drawLine(
+                Amber, Offset(nowX, 0f), Offset(nowX, size.height), strokeWidth = 2.5f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
+            )
+            drawCircle(Amber, 5f, Offset(nowX, size.height - (points[nowIndex] / max * size.height)))
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            Text(now.minusMinutes(pastMinutes).format(DateTimeFormatter.ofPattern("HH:mm")), style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .5f))
+            Spacer(Modifier.weight(1f))
+            Text("maintenant", style = MaterialTheme.typography.labelSmall, color = Amber, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text(now.plusMinutes(futureMinutes).format(DateTimeFormatter.ofPattern("HH:mm")), style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .5f))
         }
     }
 }
