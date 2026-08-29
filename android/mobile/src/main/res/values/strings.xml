@@ -2,6 +2,8 @@
     <string name="app_name">Repère</string>
     <string name="update_available">Une nouvelle version de Repère est disponible.</string>
     <string name="update_action">Mettre à jour</string>
+    <string name="update_ready_restart">Mise à jour téléchargée, prête à être installée.</string>
+    <string name="restart_action">Redémarrer</string>
     <string name="about_support">À propos et soutien</string>
     <string name="app_version">Version %1$s</string>
     <string name="support_repere">Soutenir Repère</string>

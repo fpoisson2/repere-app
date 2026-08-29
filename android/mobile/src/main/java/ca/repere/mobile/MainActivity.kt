@@ -82,7 +82,9 @@ import java.util.Locale
 import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.InstallStateUpdatedListener
 import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.InstallStatus
 import com.google.android.play.core.install.model.UpdateAvailability
 
 class MainActivity : ComponentActivity() {
@@ -132,6 +134,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     var syncing by remember{mutableStateOf(false)}
     val updateManager=remember{AppUpdateManagerFactory.create(context)}
     var availableUpdate by remember{mutableStateOf<AppUpdateInfo?>(null)}
+    var updateReadyToInstall by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
 
     fun synchronize()=scope.launch {
@@ -141,14 +144,38 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
             .onFailure{status="Hors ligne · les saisies sont conservées"}
         syncing=false
     }
+    // Re-checked on every resume (not just on first launch) since a background download can finish, or
+    // become available, while the app sits idle; startUpdateFlow is only triggered when showFlow=true.
+    suspend fun checkForUpdates(showFlow:Boolean=false):Boolean{
+        val info=runCatching{updateManager.appUpdateInfo.await()}.getOrNull()
+        updateReadyToInstall=info?.installStatus()==InstallStatus.DOWNLOADED
+        val update=info?.takeIf{it.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&it.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)}
+        availableUpdate=update
+        if(showFlow&&update!=null)runCatching{updateManager.startUpdateFlow(update,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))}
+        return update!=null||updateReadyToInstall
+    }
+    // A flexible update that finishes downloading in the background never surfaces on its own;
+    // this listener is what turns that into the "restart to install" banner below.
+    DisposableEffect(updateManager){
+        val listener=InstallStateUpdatedListener{state->
+            when(state.installStatus()){
+                InstallStatus.DOWNLOADED->updateReadyToInstall=true
+                InstallStatus.INSTALLED,InstallStatus.CANCELED->{updateReadyToInstall=false;availableUpdate=null}
+                else->{}
+            }
+        }
+        updateManager.registerListener(listener)
+        onDispose{updateManager.unregisterListener(listener)}
+    }
     LaunchedEffect(Unit){repository.ensureOfflineDefaults()}
-    LaunchedEffect(Unit){availableUpdate=runCatching{updateManager.appUpdateInfo.await()}.getOrNull()?.takeIf{it.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&it.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)}}
+    LaunchedEffect(Unit){checkForUpdates()}
     LaunchedEffect(token,syncEnabled){if(token.isNotBlank()&&syncEnabled)synchronize()}
     LaunchedEffect(drinks,localSettings){WearStatePublisher.publish(context,drinks,localSettings?:LocalSettings())}
     // Re-read credentials (e.g. after the OAuth browser redirect) and refresh whenever the app returns to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME){
         server=credentials.server(BuildConfig.DEFAULT_SERVER_URL);token=credentials.token();syncEnabled=credentials.syncEnabled()
         if(token.isNotBlank()&&syncEnabled)synchronize()
+        scope.launch{checkForUpdates()}
     }
 
     Scaffold(containerColor=Paper,bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.filter{it.inBar}.forEach{item ->
@@ -174,9 +201,10 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
                 Destination.GOALS -> GoalsScreen(repository,goals,drinks,trackedDays,localSettings?:LocalSettings(),{synchronize()})
                 Destination.HISTORY -> HistoryScreen(drinks){clientId -> scope.launch{repository.markDeleted(clientId);status=if(syncEnabled)"Suppression en attente" else "Suppression locale";synchronize()}}
                 Destination.HEALTH -> HealthScreen(context,server,token)
-                Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH})
+                Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH},onCheckUpdates={checkForUpdates(showFlow=true)})
             }
-            availableUpdate?.let{info->Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_available),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))}}){Text(stringResource(R.string.update_action))}}}}
+            if(updateReadyToInstall){Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_ready_restart),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.completeUpdate()}}){Text(stringResource(R.string.restart_action))}}}}
+            else availableUpdate?.let{info->Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_available),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))}}){Text(stringResource(R.string.update_action))}}}}
         }
     }
 }
@@ -642,7 +670,7 @@ private fun HealthScreen(context:Context,server:String,token:String) {
 }
 
 @Composable
-private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List<DrinkEntity>,localSettings:LocalSettings,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit) {
+private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List<DrinkEntity>,localSettings:LocalSettings,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit,onCheckUpdates:suspend()->Boolean) {
     val credentials=remember{CredentialStore(context)};var message by remember{mutableStateOf(status)};val scope=rememberCoroutineScope()
     var dayStart by remember{mutableIntStateOf(localSettings.dayStartHour)};var sessionGap by remember{mutableStateOf(localSettings.sessionGapHours)}
     var trackingStart by remember{mutableStateOf(localSettings.trackingStartDate.orEmpty())}
@@ -706,7 +734,7 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
             Text(stringResource(R.string.about_support),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
             Text(stringResource(R.string.app_version,BuildConfig.VERSION_NAME),color=Pine.copy(alpha=.72f))
             OutlinedButton(onClick={val intent=if(android.os.Build.VERSION.SDK_INT>=33)Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS,Uri.parse("package:${context.packageName}"))else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${context.packageName}"));context.startActivity(intent)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.language_settings))}
-            OutlinedButton(onClick={scope.launch{val manager=AppUpdateManagerFactory.create(context);val info=runCatching{manager.appUpdateInfo.await()}.getOrNull();if(info?.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE))manager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))else message=context.getString(R.string.up_to_date)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
+            OutlinedButton(onClick={scope.launch{if(!onCheckUpdates())message=context.getString(R.string.up_to_date)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
             OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.source_code))}
             if(server.isNotBlank())OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(server.trimEnd('/')+"/about")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.project_website))}
             OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://buymeacoffee.com/fpoisson")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.support_repere))}
