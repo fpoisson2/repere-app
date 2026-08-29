@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.app.Activity
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -203,7 +204,14 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
                 Destination.HEALTH -> HealthScreen(context,server,token)
                 Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH},onCheckUpdates={checkForUpdates(showFlow=true)})
             }
-            if(updateReadyToInstall){Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_ready_restart),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.completeUpdate()}}){Text(stringResource(R.string.restart_action))}}}}
+            if(updateReadyToInstall){Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_ready_restart),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={
+                // completeUpdate() silently drops failures unless you attach a listener; without this the
+                // button could look like it does nothing when the tracked install state is stale.
+                runCatching{updateManager.completeUpdate()}.getOrNull()?.addOnFailureListener{
+                    Toast.makeText(context,context.getString(R.string.update_restart_failed),Toast.LENGTH_LONG).show()
+                    runCatching{context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("market://details?id=${context.packageName}")))}
+                }?:Toast.makeText(context,context.getString(R.string.update_restart_failed),Toast.LENGTH_LONG).show()
+            }){Text(stringResource(R.string.restart_action))}}}}
             else availableUpdate?.let{info->Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_available),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))}}){Text(stringResource(R.string.update_action))}}}}
         }
     }
@@ -672,6 +680,7 @@ private fun HealthScreen(context:Context,server:String,token:String) {
 @Composable
 private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List<DrinkEntity>,localSettings:LocalSettings,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit,onCheckUpdates:suspend()->Boolean) {
     val credentials=remember{CredentialStore(context)};var message by remember{mutableStateOf(status)};val scope=rememberCoroutineScope()
+    var showUpToDateDialog by remember{mutableStateOf(false)}
     var dayStart by remember{mutableIntStateOf(localSettings.dayStartHour)};var sessionGap by remember{mutableStateOf(localSettings.sessionGapHours)}
     var trackingStart by remember{mutableStateOf(localSettings.trackingStartDate.orEmpty())}
     LaunchedEffect(localSettings.dayStartHour,localSettings.sessionGapHours,localSettings.trackingStartDate){dayStart=localSettings.dayStartHour;sessionGap=localSettings.sessionGapHours;trackingStart=localSettings.trackingStartDate.orEmpty()}
@@ -734,7 +743,7 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
             Text(stringResource(R.string.about_support),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
             Text(stringResource(R.string.app_version,BuildConfig.VERSION_NAME),color=Pine.copy(alpha=.72f))
             OutlinedButton(onClick={val intent=if(android.os.Build.VERSION.SDK_INT>=33)Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS,Uri.parse("package:${context.packageName}"))else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${context.packageName}"));context.startActivity(intent)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.language_settings))}
-            OutlinedButton(onClick={scope.launch{if(!onCheckUpdates())message=context.getString(R.string.up_to_date)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
+            OutlinedButton(onClick={scope.launch{if(!onCheckUpdates())showUpToDateDialog=true}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
             OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.source_code))}
             if(server.isNotBlank())OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(server.trimEnd('/')+"/about")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.project_website))}
             OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://buymeacoffee.com/fpoisson")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.support_repere))}
@@ -742,6 +751,7 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
             Spacer(Modifier.height(20.dp))
         }
     }
+    if(showUpToDateDialog)AlertDialog(onDismissRequest={showUpToDateDialog=false},confirmButton={TextButton(onClick={showUpToDateDialog=false}){Text("OK")}},title={Text(stringResource(R.string.check_updates))},text={Text(stringResource(R.string.up_to_date))})
 }
 
 internal object Api {
