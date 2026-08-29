@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.app.Activity
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -203,7 +204,14 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
                 Destination.HEALTH -> HealthScreen(context,server,token)
                 Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)"Synchronisation activée" else "Local uniquement"},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH},onCheckUpdates={checkForUpdates(showFlow=true)})
             }
-            if(updateReadyToInstall){Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_ready_restart),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.completeUpdate()}}){Text(stringResource(R.string.restart_action))}}}}
+            if(updateReadyToInstall){Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_ready_restart),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={
+                // completeUpdate() silently drops failures unless you attach a listener; without this the
+                // button could look like it does nothing when the tracked install state is stale.
+                runCatching{updateManager.completeUpdate()}.getOrNull()?.addOnFailureListener{
+                    Toast.makeText(context,context.getString(R.string.update_restart_failed),Toast.LENGTH_LONG).show()
+                    runCatching{context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("market://details?id=${context.packageName}")))}
+                }?:Toast.makeText(context,context.getString(R.string.update_restart_failed),Toast.LENGTH_LONG).show()
+            }){Text(stringResource(R.string.restart_action))}}}}
             else availableUpdate?.let{info->Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_available),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={runCatching{updateManager.startUpdateFlow(info,context as Activity,AppUpdateOptions.defaultOptions(AppUpdateType.FLEXIBLE))}}){Text(stringResource(R.string.update_action))}}}}
         }
     }
