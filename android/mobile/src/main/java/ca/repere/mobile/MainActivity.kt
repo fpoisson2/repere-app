@@ -25,7 +25,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -503,6 +505,24 @@ private fun MaintenantScreen(
     )
 }
 
+/** A read-only OutlinedTextField that opens a picker on tap. Full-width and click-through-overlaid
+ * (rather than a cramped leading icon + trailing "Choisir" button) so the label and value never
+ * get squeezed into an unreadable sliver when placed inside a narrow dialog. */
+@Composable
+private fun PickerField(value: String, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value, {}, readOnly = true, label = { Text(label) },
+            leadingIcon = { Icon(icon, null) }, modifier = Modifier.fillMaxWidth(),
+        )
+        Box(
+            Modifier.matchParentSize().clickable(
+                interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick,
+            ),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DrinkEditorDialog(
@@ -572,18 +592,14 @@ private fun DrinkEditorDialog(
                         color = Pine, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)), {}, readOnly = true, label = { Text("Date") },
-                        leadingIcon = { Icon(Icons.Filled.CalendarToday, null) }, modifier = Modifier.weight(1f),
-                        trailingIcon = { TextButton(onClick = { pickDate = true }) { Text("Choisir") } },
-                    )
-                    OutlinedTextField(
-                        time.format(DateTimeFormatter.ofPattern("HH:mm")), {}, readOnly = true, label = { Text("Heure") },
-                        leadingIcon = { Icon(Icons.Filled.Schedule, null) }, modifier = Modifier.weight(1f),
-                        trailingIcon = { TextButton(onClick = { pickTime = true }) { Text("Choisir") } },
-                    )
-                }
+                PickerField(
+                    value = date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)),
+                    label = "Date", icon = Icons.Filled.CalendarToday, onClick = { pickDate = true },
+                )
+                PickerField(
+                    value = time.format(DateTimeFormatter.ofPattern("HH:mm")),
+                    label = "Heure", icon = Icons.Filled.Schedule, onClick = { pickTime = true },
+                )
                 OutlinedTextField(
                     duration, { duration = it.filter(Char::isDigit) }, label = { Text("Durée") }, suffix = { Text("min") },
                     singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth(),
@@ -919,6 +935,7 @@ private fun HealthScreen(context:Context,server:String,token:String) {
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List<DrinkEntity>,localSettings:LocalSettings,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:String,onOpenHistory:()->Unit,onOpenHealth:()->Unit,onCheckUpdates:suspend()->Boolean) {
     val credentials=remember{CredentialStore(context)};var message by remember{mutableStateOf(status)};val scope=rememberCoroutineScope()
@@ -971,7 +988,7 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
             HorizontalDivider(Modifier.padding(vertical=6.dp))
             Text("Unités de mesure",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
             Text("Le nombre de grammes d’alcool pur dans une « consommation standard » varie selon le pays. Ajuste-le si tu préfères une autre référence.",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                 listOf("Canada" to CANADIAN_STANDARD_GRAMS,"USA" to US_STANDARD_GRAMS,"UK" to UK_STANDARD_GRAMS,"Australie" to 10.0).forEach{(label,grams)->
                     val current=standardGramsText.replace(',','.').toDoubleOrNull()
                     FilterChip(selected=current!=null&&kotlin.math.abs(current-grams)<0.01,onClick={standardGramsText=String.format(Locale.CANADA_FRENCH,"%.2f",grams)},label={Text("$label · ${String.format(Locale.CANADA_FRENCH,"%.2f",grams)} g")})
@@ -985,7 +1002,7 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
                 modifier=Modifier.fillMaxWidth(),
             )
             Text("Unité de volume",fontWeight=FontWeight.Bold)
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
                 FilterChip(selected=volumeUnit=="ml",onClick={volumeUnit="ml"},label={Text("Millilitres (ml)")})
                 FilterChip(selected=volumeUnit=="oz",onClick={volumeUnit="oz"},label={Text("Onces liquides (oz)")})
             }
