@@ -8,9 +8,9 @@ from .models import Drink, ImportBatch, TrackedDay, User
 DENSITY = .789
 STANDARD_GRAMS = 13.45
 
-def alcohol(volume_ml: float, abv: float, quantity: int = 1):
+def alcohol(volume_ml: float, abv: float, quantity: int = 1, standard_grams: float = STANDARD_GRAMS):
     grams = volume_ml * abv / 100 * DENSITY * quantity
-    return grams, grams / STANDARD_GRAMS
+    return grams, grams / standard_grams
 
 def parse_time(value: str) -> time:
     value = value.strip()
@@ -46,7 +46,7 @@ def import_csv(db: Session, user: User, filename: str, content: bytes, source="a
             day, tm = parse_date(row["start_date"]), parse_time(row["start_time"])
             duration = int(float(row.get("duration_min") or 0))
             volume, abv = float(row["volume_ml"]), float(row["abv_pct"])
-            started = datetime.combine(day, tm); grams, standards = alcohol(volume, abv)
+            started = datetime.combine(day, tm); grams, standards = alcohol(volume, abv, standard_grams=user.standard_drink_grams)
             external_id = (row.get("id") or "").strip() or None
             dedupe = key_for(source, external_id, [day, tm, row["name"], volume, abv, duration])
             exists = db.scalar(select(Drink.id).where(Drink.user_id == user.id, Drink.dedupe_key == dedupe))

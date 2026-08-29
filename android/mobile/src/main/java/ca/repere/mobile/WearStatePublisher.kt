@@ -15,7 +15,7 @@ object WearStatePublisher {
         val inputs=recentForBac(drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789,d.active)}.getOrNull()},now)
         val profile=if(weight!=null&&ratio!=null)BacProfile(weight,ratio,credentials.bacEliminationRate())else null
         val current=profile?.let{bacAt(inputs,it,now)*10}?:0.0;val future=profile?.let{bacAt(inputs,it,now.plusMinutes(10))*10}?:current
-        val todayStandard=drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==LocalDate.now()}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}
+        val todayStandard=drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==LocalDate.now()}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,settings.standardDrinkGrams)}
         val active=drinks.firstOrNull{it.active}
         val request=PutDataMapRequest.create("/repere/config").apply{dataMap.putLong("synced_at",System.currentTimeMillis())
             dataMap.putBoolean("active",active!=null);dataMap.putLong("active_started_at",active?.let{runCatching{parseDrinkTime(it.startedAt).toInstant().toEpochMilli()}.getOrDefault(0L)}?:0L)

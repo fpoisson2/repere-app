@@ -58,7 +58,8 @@ data class GoalEntity(@PrimaryKey val clientId:String,val serverId:Long?,val kin
 
 @Entity(tableName="local_settings")
 data class LocalSettings(@PrimaryKey val id:String="default",val dayStartHour:Int=8,
-    val sessionGapHours:Double=8.0,val trackingStartDate:String?=null,val syncAccount:String?=null,val dirty:Boolean=false)
+    val sessionGapHours:Double=8.0,val trackingStartDate:String?=null,val syncAccount:String?=null,val dirty:Boolean=false,
+    val standardDrinkGrams:Double=13.45,val volumeUnit:String="ml")
 
 @Entity(tableName="pending_api_operations")
 data class PendingApiOperation(@PrimaryKey val id:String,val path:String,val method:String,val body:String,
@@ -209,7 +210,7 @@ interface RepereDao {
 }
 
 @Database(entities = [DrinkEntity::class, PresetEntity::class, SyncState::class,HealthAggregateEntity::class,TrackedDayEntity::class,
-    CheckInEntity::class,GoalEntity::class,LocalSettings::class,PendingApiOperation::class], version = 4, exportSchema = true)
+    CheckInEntity::class,GoalEntity::class,LocalSettings::class,PendingApiOperation::class], version = 5, exportSchema = true)
 abstract class RepereDatabase : RoomDatabase() {
     abstract fun dao(): RepereDao
 
@@ -231,9 +232,13 @@ abstract class RepereDatabase : RoomDatabase() {
             db.execSQL("CREATE TABLE IF NOT EXISTS local_settings (id TEXT NOT NULL PRIMARY KEY, dayStartHour INTEGER NOT NULL, sessionGapHours REAL NOT NULL, trackingStartDate TEXT, syncAccount TEXT, dirty INTEGER NOT NULL)")
             db.execSQL("CREATE TABLE IF NOT EXISTS pending_api_operations (id TEXT NOT NULL PRIMARY KEY, path TEXT NOT NULL, method TEXT NOT NULL, body TEXT NOT NULL, createdAt INTEGER NOT NULL, attempts INTEGER NOT NULL, lastError TEXT)")
         }}
+        private val MIGRATION_4_5=object:Migration(4,5){override fun migrate(db:SupportSQLiteDatabase){
+            db.execSQL("ALTER TABLE local_settings ADD COLUMN standardDrinkGrams REAL NOT NULL DEFAULT 13.45")
+            db.execSQL("ALTER TABLE local_settings ADD COLUMN volumeUnit TEXT NOT NULL DEFAULT 'ml'")
+        }}
         fun get(context: Context): RepereDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, RepereDatabase::class.java, "repere.db")
-                .addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4).build().also { instance = it }
+                .addMigrations(MIGRATION_1_2,MIGRATION_2_3,MIGRATION_3_4,MIGRATION_4_5).build().also { instance = it }
         }
     }
 }

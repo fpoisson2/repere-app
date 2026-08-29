@@ -85,7 +85,7 @@ def change_password(payload:dict,request:Request,u:User=Depends(current_user),db
     u.password_hash=hash_password(new);u.session_version+=1;db.commit();request.session.clear()
 
 @app.get("/api/auth/me")
-def me(u:User=Depends(current_user)): return {"id":u.id,"username":u.username,"tracking_start_date":u.tracking_start_date,"day_start_hour":u.day_start_hour,"weight_kg":u.weight_kg,"height_cm":u.height_cm,"sex":u.sex,"distribution_ratio":u.distribution_ratio,"effective_distribution_ratio":round(body_r(u),3),"elimination_rate":u.elimination_rate,"session_gap_hours":u.session_gap_hours}
+def me(u:User=Depends(current_user)): return {"id":u.id,"username":u.username,"tracking_start_date":u.tracking_start_date,"day_start_hour":u.day_start_hour,"weight_kg":u.weight_kg,"height_cm":u.height_cm,"sex":u.sex,"distribution_ratio":u.distribution_ratio,"effective_distribution_ratio":round(body_r(u),3),"elimination_rate":u.elimination_rate,"session_gap_hours":u.session_gap_hours,"standard_drink_grams":u.standard_drink_grams,"volume_unit":u.volume_unit}
 
 @app.patch("/api/settings")
 def patch_settings(data:SettingsPatch,u:User=Depends(current_user),db:Session=Depends(get_db)):
@@ -174,7 +174,7 @@ def wear_start(payload:dict,idempotency_key:str|None=Header(None,alias="Idempote
     if volume<=0 or not 0<=abv<=100 or quantity<1:raise HTTPException(422,"Volume, taux ou quantité invalide")
     raw_started=datetime.fromisoformat(str(payload["started_at"]).replace("Z","+00:00")) if payload.get("started_at") else datetime.now()
     started,started_utc=local_and_utc(raw_started,payload.get("timezone_id"))
-    grams,standard=alcohol(volume,abv,quantity);dedupe=f"wear:{idempotency_key}" if idempotency_key else f"wear:{uuid.uuid4()}"
+    grams,standard=alcohol(volume,abv,quantity,u.standard_drink_grams);dedupe=f"wear:{idempotency_key}" if idempotency_key else f"wear:{uuid.uuid4()}"
     d=Drink(user_id=u.id,drink_type=preset.drink_type if preset else str(payload.get("drink_type") or "autre"),drink_name=str(payload.get("drink_name") or (preset.name if preset else "Consommation")),volume_ml=volume,abv_percent=abv,quantity=quantity,started_at=started,ended_at=started,duration_minutes=0,notes=None,cost=None,source_icon="wear",import_source="wear_os",external_id=None,import_batch_id=None,dedupe_key=dedupe,alcohol_grams=grams,canadian_standard_drinks=standard,is_active=True,started_at_utc=started_utc,ended_at_utc=started_utc,local_date=(started-timedelta(hours=u.day_start_hour)).date(),timezone_id=payload.get("timezone_id"),utc_offset_minutes=raw_started.utcoffset().total_seconds()/60 if raw_started.utcoffset() else None,timezone_assumption=None if raw_started.tzinfo else "legacy_local_time")
     db.add(d);day=(started-timedelta(hours=u.day_start_hour)).date()
     if not u.tracking_start_explicit and (not u.tracking_start_date or day<u.tracking_start_date):u.tracking_start_date=day
@@ -208,7 +208,7 @@ def add_drink(data:DrinkIn,idempotency_key:str|None=Header(None,alias="Idempoten
     if idempotency_key:
         existing=db.scalar(select(Drink).where(Drink.user_id==u.id,Drink.dedupe_key==f"manual:{idempotency_key}"))
         if existing:return existing
-    grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity)
+    grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity,u.standard_drink_grams)
     started,started_utc=local_and_utc(data.started_at,data.timezone_id);ended=started+timedelta(minutes=data.duration_minutes);ended_utc=started_utc+timedelta(minutes=data.duration_minutes)
     dedupe=f"manual:{idempotency_key}" if idempotency_key else key_for("manual",None,[started_utc.isoformat(),data.drink_name,data.volume_ml,data.abv_percent,data.duration_minutes,datetime.utcnow().isoformat()])
     day=(started-timedelta(hours=u.day_start_hour)).date()
@@ -228,7 +228,7 @@ def add_drink(data:DrinkIn,idempotency_key:str|None=Header(None,alias="Idempoten
 def update_drink(drink_id:int,data:DrinkIn,u:User=Depends(current_user),db:Session=Depends(get_db)):
     d=db.get(Drink,drink_id)
     if not d or d.user_id!=u.id:raise HTTPException(404)
-    grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity)
+    grams,standard=alcohol(data.volume_ml,data.abv_percent,data.quantity,u.standard_drink_grams)
     started,started_utc=local_and_utc(data.started_at,data.timezone_id);ended=started+timedelta(minutes=data.duration_minutes)
     values=data.model_dump();values.pop("started_at",None)
     for key,value in values.items():setattr(d,key,value)
@@ -271,7 +271,7 @@ def push_sync(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db))
         if previous:results.append(previous.result);continue
         operation=raw.get("operation");server_id=raw.get("server_id");data=raw.get("data") or {}
         if operation=="create":
-            incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity)
+            incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity,u.standard_drink_grams)
             started,started_utc=local_and_utc(incoming.started_at,incoming.timezone_id);ended=started+timedelta(minutes=incoming.duration_minutes);ended_utc=started_utc+timedelta(minutes=incoming.duration_minutes);day=(started-timedelta(hours=u.day_start_hour)).date()
             values=incoming.model_dump();values.pop("started_at",None)
             d=Drink(**values,user_id=u.id,started_at=started,ended_at=ended,dedupe_key=f"sync:{mutation_id}",
@@ -283,7 +283,7 @@ def push_sync(payload:dict,u:User=Depends(wear_user),db:Session=Depends(get_db))
         elif operation=="update":
             d=db.get(Drink,int(server_id)) if server_id is not None else None
             if not d or d.user_id!=u.id:raise HTTPException(404,"Consommation introuvable")
-            incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity)
+            incoming=DrinkIn.model_validate(data);grams,standard=alcohol(incoming.volume_ml,incoming.abv_percent,incoming.quantity,u.standard_drink_grams)
             started,started_utc=local_and_utc(incoming.started_at,incoming.timezone_id);ended=started+timedelta(minutes=incoming.duration_minutes)
             values=incoming.model_dump();values.pop("started_at",None)
             for key,value in values.items():setattr(d,key,value)
@@ -422,7 +422,7 @@ def unmark_sober(day:date,u:User=Depends(current_user),db:Session=Depends(get_db
 def stats(days:int=30,start:date|None=None,end:date|None=None,u:User=Depends(current_user),db:Session=Depends(get_db)):
     finish=end or date.today();begin=start or finish-timedelta(days=days-1)
     if begin>finish:raise HTTPException(422,"La date de début doit précéder la date de fin")
-    series=daily_series(db,u,begin,finish); return {"tracking_start_date":u.tracking_start_date,"range":{"start":begin,"end":finish},"period":period_stats(series),"days":series}
+    series=daily_series(db,u,begin,finish); return {"tracking_start_date":u.tracking_start_date,"range":{"start":begin,"end":finish},"period":period_stats(series),"days":series,"standard_drink_grams":u.standard_drink_grams,"volume_unit":u.volume_unit}
 
 HEALTH_STAT_TYPES=("sleep","steps","exercise","resting_heart_rate","heart_rate","hrv_rmssd")
 HEALTH_CUMULATIVE={"sleep","steps","exercise"}

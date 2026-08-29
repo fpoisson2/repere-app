@@ -412,7 +412,7 @@ function App() {
       )}
       {moodModal && (
         <CheckInModal day={selectedDate} initial={moodModal.isNew ? undefined : moodModal}
-          close={() => setMoodModal(undefined)} saved={load} />
+          close={() => setMoodModal(undefined)} saved={load} standardGrams={stats?.standard_drink_grams} />
       )}
     </>
   );
@@ -654,7 +654,7 @@ function Dashboard({
             className="checkincard" onClick={() => mood(checkIn)}>
             <BrainCircuit size={20} />
             <span><b>Check-in de {new Date(checkIn.observed_at_utc).toLocaleTimeString("fr-CA", {hour:"2-digit",minute:"2-digit"})}</b>
-              <small>Envie {checkIn.craving}/10 · confiance {checkIn.confidence}/10 · intention {checkIn.display_quantity ?? (checkIn.planned_grams / 13.45).toFixed(1)} standard(s)</small>
+              <small>Envie {checkIn.craving}/10 · confiance {checkIn.confidence}/10 · intention {checkIn.display_quantity ?? (checkIn.planned_grams / (stats?.standard_drink_grams || 13.45)).toFixed(1)} standard(s)</small>
               <small>{({alone:"Seul·e",partner_family:"Partenaire/famille",friends:"Amis",colleagues_event:"Collègues/événement"} as Record<string,string>)[checkIn.social_context] || checkIn.social_context}{checkIn.notes ? ` · ${checkIn.notes}` : ""}</small>
             </span>
             <Pencil size={16} />
@@ -1387,8 +1387,9 @@ function Stats({ stats }: { stats: any }) {
           </div>
         </div>
         <p className="muted">
-          Par journée observée · 1 consommation standard canadienne = 13,45 g
-          d’alcool pur.
+          Par journée observée · 1 consommation standard ={" "}
+          {(stats.standard_drink_grams ?? 13.45).toFixed(2).replace(".", ",")}{" "}
+          g d’alcool pur.
         </p>
         <div className="metrics">
           {[
@@ -1579,12 +1580,12 @@ function Stats({ stats }: { stats: any }) {
       <section className="card full">
         <div className="eyebrow">Hebdomadaire</div>
         <h2>Évolution par semaine</h2>
-        <PeriodTable rows={weekly.slice(-12)} type="week" />
+        <PeriodTable rows={weekly.slice(-12)} type="week" standardGrams={stats.standard_drink_grams} />
       </section>
       <section className="card full">
         <div className="eyebrow">Mensuel</div>
         <h2>Évolution par mois</h2>
-        <PeriodTable rows={monthly.slice(-12)} type="month" />
+        <PeriodTable rows={monthly.slice(-12)} type="month" standardGrams={stats.standard_drink_grams} />
       </section>
       <section className="card today">
         <div className="eyebrow">Sessions · écart configuré</div>
@@ -2382,7 +2383,7 @@ function MovingChart({ trends, goals }: { trends: any; goals: any[] }) {
     </section>
   );
 }
-function PeriodTable({ rows, type }: { rows: any[]; type: string }) {
+function PeriodTable({ rows, type, standardGrams = 13.45 }: { rows: any[]; type: string; standardGrams?: number }) {
   const [metric, setMetric] = useState<"grams" | "standards">("grams"),
     standards = metric === "standards",
     unit = standards ? " standards" : " g",
@@ -2441,7 +2442,7 @@ function PeriodTable({ rows, type }: { rows: any[]; type: string }) {
                     ? "—"
                     : format(
                         standards
-                          ? r[type === "week" ? "moving_4" : "moving_3"] / 13.45
+                          ? r[type === "week" ? "moving_4" : "moving_3"] / standardGrams
                           : r[type === "week" ? "moving_4" : "moving_3"],
                       )}
                 </td>
@@ -2884,7 +2885,8 @@ function History() {
     [page, setPage] = useState(1),
     [selected, setSelected] = useState<number[]>([]),
     [editing, setEditing] = useState<any>(),
-    [loading, setLoading] = useState(false);
+    [loading, setLoading] = useState(false),
+    [pendingBulkDelete, setPendingBulkDelete] = useState<any>();
   const search = async (requestedPage = page) => {
     setLoading(true);
     const params = new URLSearchParams({
@@ -2913,17 +2915,40 @@ function History() {
         : [...values, id],
     );
   const bulkDelete = async () => {
-    if (
-      !selected.length ||
-      !window.confirm(
-        `Supprimer ${selected.length} consommation${selected.length > 1 ? "s" : ""} ?`,
-      )
-    )
-      return;
+    if (!selected.length) return;
+    const rows = result.items.filter((item: any) => selected.includes(item.id));
     await api("/drinks/bulk-delete", {
       method: "POST",
       body: JSON.stringify({ ids: selected }),
     });
+    await search(page);
+    if (pendingBulkDelete) window.clearTimeout(pendingBulkDelete.timer);
+    const timer = window.setTimeout(() => setPendingBulkDelete(undefined), 10000);
+    setPendingBulkDelete({ rows, timer });
+  };
+  const undoBulkDelete = async () => {
+    const rows = pendingBulkDelete?.rows;
+    if (!rows?.length) return;
+    window.clearTimeout(pendingBulkDelete.timer);
+    setPendingBulkDelete(undefined);
+    await Promise.all(
+      rows.map((drink: any) =>
+        api("/drinks", {
+          method: "POST",
+          body: JSON.stringify({
+            drink_type: drink.drink_type,
+            drink_name: drink.drink_name,
+            volume_ml: drink.volume_ml,
+            abv_percent: drink.abv_percent,
+            quantity: drink.quantity,
+            started_at: drink.started_at,
+            duration_minutes: drink.duration_minutes,
+            notes: drink.notes,
+            cost: drink.cost,
+          }),
+        }),
+      ),
+    );
     await search(page);
   };
   return (
@@ -3134,6 +3159,16 @@ function History() {
           }}
         />
       )}
+      {pendingBulkDelete && (
+        <div className="undotoast">
+          <span>
+            {pendingBulkDelete.rows.length} consommation
+            {pendingBulkDelete.rows.length > 1 ? "s" : ""} supprimée
+            {pendingBulkDelete.rows.length > 1 ? "s" : ""}
+          </span>
+          <button onClick={undoBulkDelete}>Annuler</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -3160,6 +3195,8 @@ function Prefs({
     [ratio, setRatio] = useState(0.68),
     [elim, setElim] = useState(0.015),
     [gap, setGap] = useState(4),
+    [standardGrams, setStandardGrams] = useState(13.45),
+    [volumeUnit, setVolumeUnit] = useState("ml"),
     [currentPassword, setCurrentPassword] = useState(""),
     [newPassword, setNewPassword] = useState(""),
     [accountMessage, setAccountMessage] = useState(""),
@@ -3175,6 +3212,8 @@ function Prefs({
       setRatio(x.effective_distribution_ratio ?? x.distribution_ratio);
       setElim(x.elimination_rate);
       setGap(x.session_gap_hours);
+      setStandardGrams(x.standard_drink_grams ?? 13.45);
+      setVolumeUnit(x.volume_unit || "ml");
     });
     loadWearDevices();
   }, []);
@@ -3189,6 +3228,8 @@ function Prefs({
         height_cm: height,
         elimination_rate: elim,
         session_gap_hours: gap,
+        standard_drink_grams: standardGrams,
+        volume_unit: volumeUnit,
       }),
     });
     const me = await api("/auth/me");
@@ -3303,6 +3344,50 @@ function Prefs({
               onChange={(e) => setGap(+e.target.value)}
             />
           </label>
+          <label>
+            Grammes par consommation standard
+            <input
+              type="number"
+              step=".01"
+              min="4"
+              max="30"
+              value={standardGrams}
+              onChange={(e) => setStandardGrams(+e.target.value)}
+            />
+          </label>
+          <label>
+            Unité de volume
+            <select
+              value={volumeUnit}
+              onChange={(e) => setVolumeUnit(e.target.value)}
+            >
+              <option value="ml">Millilitres (ml)</option>
+              <option value="oz">Onces liquides (oz)</option>
+            </select>
+          </label>
+        </div>
+        <p className="muted">
+          Le nombre de grammes d’alcool pur dans une « consommation standard »
+          varie selon le pays; ajuste-le si tu préfères une autre référence.
+        </p>
+        <div className="checksegments">
+          {(
+            [
+              ["Canada", 13.45],
+              ["USA", 14],
+              ["UK", 8],
+              ["Australie", 10],
+            ] as [string, number][]
+          ).map(([label, grams]) => (
+            <button
+              type="button"
+              key={label}
+              className={Math.abs(standardGrams - grams) < 0.01 ? "active" : ""}
+              onClick={() => setStandardGrams(grams)}
+            >
+              {label} · {grams} g
+            </button>
+          ))}
         </div>
         <p className="muted">
           À {String(hour).padStart(2, "0")}:00, une nouvelle journée statistique
@@ -3459,10 +3544,10 @@ function Prefs({
     </div>
   );
 }
-function CheckInModal({ day, close, initial, saved: onSaved }: { day: string; close: () => void; initial?: any; saved?: () => Promise<void> }) {
+function CheckInModal({ day, close, initial, saved: onSaved, standardGrams = 13.45 }: { day: string; close: () => void; initial?: any; saved?: () => Promise<void>; standardGrams?: number }) {
   const [craving, setCraving] = useState(initial?.craving ?? 5),
     [confidence, setConfidence] = useState(initial?.confidence ?? 5),
-    [planned, setPlanned] = useState(initial?.display_quantity ?? (initial?.planned_grams != null ? initial.planned_grams / 13.45 : 0)),
+    [planned, setPlanned] = useState(initial?.display_quantity ?? (initial?.planned_grams != null ? initial.planned_grams / standardGrams : 0)),
     [social, setSocial] = useState(initial?.social_context ?? "alone"),
     [others, setOthers] = useState(initial?.others_drinking ?? "unknown"),
     [available, setAvailable] = useState(initial?.alcohol_available ?? false),
@@ -3484,7 +3569,7 @@ function CheckInModal({ day, close, initial, saved: onSaved }: { day: string; cl
         body: JSON.stringify({
           observed_at: initial?.observed_at_utc || new Date().toISOString(), local_date: day,
           timezone_id: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          craving, confidence, planned_grams: planned * 13.45,
+          craving, confidence, planned_grams: planned * standardGrams,
           display_quantity: planned, display_unit: "standard_ca",
           social_context: social, others_drinking: others,
           alcohol_available: available,

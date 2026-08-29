@@ -17,6 +17,8 @@ class User(Base):
     elimination_rate: Mapped[float] = mapped_column(Float, default=.015)
     session_gap_hours: Mapped[float] = mapped_column(Float, default=4)
     day_start_hour: Mapped[int] = mapped_column(Integer, default=8)
+    standard_drink_grams: Mapped[float] = mapped_column(Float, default=13.45)
+    volume_unit: Mapped[str] = mapped_column(String(8), default="ml")
     session_version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

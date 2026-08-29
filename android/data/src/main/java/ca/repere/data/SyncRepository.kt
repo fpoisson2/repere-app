@@ -164,6 +164,9 @@ class SyncRepository(context: Context) {
     suspend fun saveSettings(dayStartHour:Int,sessionGapHours:Double=8.0,trackingStartDate:String?=null){
         val old=dao.settings()?:LocalSettings();dao.putSettings(old.copy(dayStartHour=dayStartHour,sessionGapHours=sessionGapHours,trackingStartDate=trackingStartDate,dirty=true))
     }
+    suspend fun saveMeasurementPreferences(standardDrinkGrams:Double,volumeUnit:String){
+        val old=dao.settings()?:LocalSettings();dao.putSettings(old.copy(standardDrinkGrams=standardDrinkGrams,volumeUnit=volumeUnit,dirty=true))
+    }
     suspend fun savePreset(preset:PresetEntity,name:String,type:String,volume:Double,abv:Double){
         val id=if(preset.serverId==0L)-System.currentTimeMillis() else preset.serverId
         dao.putPresets(listOf(PresetEntity(id,name,type,volume,abv,true,false,UUID.randomUUID().toString())))
@@ -190,7 +193,7 @@ class SyncRepository(context: Context) {
             if(row.serverId<=0){val result=request(server,token,"/api/presets","POST",body);dao.deletePreset(row.serverId);dao.putPresets(listOf(row.copy(serverId=result.getLong("id"),dirty=false,mutationId=null)))}
             else {request(server,token,"/api/presets/${row.serverId}","PATCH",body);dao.putPresets(listOf(row.copy(dirty=false,mutationId=null)))}}
     }}
-    private suspend fun pushSettings(server:String,token:String){val row=dao.settings()?:return;if(!row.dirty)return;request(server,token,"/api/settings","PATCH",JSONObject().put("day_start_hour",row.dayStartHour).put("session_gap_hours",row.sessionGapHours).put("tracking_start_date",row.trackingStartDate));dao.putSettings(row.copy(dirty=false))}
+    private suspend fun pushSettings(server:String,token:String){val row=dao.settings()?:return;if(!row.dirty)return;request(server,token,"/api/settings","PATCH",JSONObject().put("day_start_hour",row.dayStartHour).put("session_gap_hours",row.sessionGapHours).put("tracking_start_date",row.trackingStartDate).put("standard_drink_grams",row.standardDrinkGrams).put("volume_unit",row.volumeUnit));dao.putSettings(row.copy(dirty=false))}
 
     private suspend fun pullPresets(server:String,token:String) {
         val rows=requestArray(server,token,"/api/wear/presets")
@@ -206,7 +209,7 @@ class SyncRepository(context: Context) {
 
     private suspend fun pullCheckIns(server:String,token:String){val rows=requestArray(server,token,"/api/check-ins");for(i in 0 until rows.length()){val value=rows.getJSONObject(i);val id=value.getString("id");dao.putCheckIn(CheckInEntity(id,value.getString("local_date"),value.toString(),false))}}
     private suspend fun pullGoals(server:String,token:String){val rows=requestArray(server,token,"/api/goals");val pending=dao.pendingGoals();dao.removeSyncedGoals();for(i in 0 until rows.length()){val g=rows.getJSONObject(i);val serverId=g.getLong("id");val local=pending.firstOrNull{it.serverId==serverId};if(local==null)dao.putGoal(GoalEntity("server:$serverId",serverId,g.getString("kind"),g.getDouble("target"),g.optBoolean("active",true),g.optString("temporal_mode","consecutive_weeks"),g.optInt("consecutive_weeks").takeIf{it>0},g.optString("due_date").takeIf{it.isNotBlank()&&it!="null"},g.optString("started_on",java.time.LocalDate.now().toString()),false))}}
-    private suspend fun pullSettings(server:String,token:String){val me=request(server,token,"/api/auth/me","GET",null);val old=dao.settings()?:LocalSettings();if(!old.dirty)dao.putSettings(old.copy(dayStartHour=me.optInt("day_start_hour",old.dayStartHour),sessionGapHours=me.optDouble("session_gap_hours",old.sessionGapHours),trackingStartDate=me.optString("tracking_start_date").takeIf{it.isNotBlank()&&it!="null"}))}
+    private suspend fun pullSettings(server:String,token:String){val me=request(server,token,"/api/auth/me","GET",null);val old=dao.settings()?:LocalSettings();if(!old.dirty)dao.putSettings(old.copy(dayStartHour=me.optInt("day_start_hour",old.dayStartHour),sessionGapHours=me.optDouble("session_gap_hours",old.sessionGapHours),trackingStartDate=me.optString("tracking_start_date").takeIf{it.isNotBlank()&&it!="null"},standardDrinkGrams=me.optDouble("standard_drink_grams",old.standardDrinkGrams),volumeUnit=me.optString("volume_unit").ifBlank{old.volumeUnit}))}
 
     private fun DrinkEntity.toJson()=JSONObject().put("drink_name",name).put("drink_type",type)
         .put("volume_ml",volumeMl).put("abv_percent",abvPercent).put("quantity",quantity)
