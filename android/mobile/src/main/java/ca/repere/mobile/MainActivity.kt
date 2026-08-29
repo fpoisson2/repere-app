@@ -136,13 +136,14 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     fun synchronize()=scope.launch {
         if(token.isBlank()||!syncEnabled)return@launch
         syncing=true;status="Synchronisation…"
-        runCatching{Net.flush(context);repository.synchronize()}.onSuccess{status="À jour";pokeWatch(context)}
+        runCatching{Net.flush(context);repository.synchronize()}.onSuccess{status="À jour";pokeWatch(context,drinks,localSettings?:LocalSettings())}
             .onFailure{status="Hors ligne · les saisies sont conservées"}
         syncing=false
     }
     LaunchedEffect(Unit){repository.ensureOfflineDefaults()}
     LaunchedEffect(Unit){availableUpdate=runCatching{updateManager.appUpdateInfo.await()}.getOrNull()?.takeIf{it.updateAvailability()==UpdateAvailability.UPDATE_AVAILABLE&&it.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)}}
     LaunchedEffect(token,syncEnabled){if(token.isNotBlank()&&syncEnabled)synchronize()}
+    LaunchedEffect(drinks,localSettings){pokeWatch(context,drinks,localSettings?:LocalSettings())}
     // Re-read credentials (e.g. after the OAuth browser redirect) and refresh whenever the app returns to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME){
         server=credentials.server(BuildConfig.DEFAULT_SERVER_URL);token=credentials.token();syncEnabled=credentials.syncEnabled()
@@ -179,11 +180,19 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
     }
 }
 
-/** Nudge the watch to refresh its complication after the phone changes drink data. */
-private fun pokeWatch(context:Context){
+/** Publish the phone's offline state; Wear renders this cache without contacting the server. */
+private fun pokeWatch(context:Context,drinks:List<DrinkEntity>,settings:LocalSettings){
+    val credentials=CredentialStore(context);val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio();val now=OffsetDateTime.now()
+    val bacDrinks=drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()}
+    val profile=if(weight!=null&&ratio!=null)BacProfile(weight,ratio,credentials.bacEliminationRate())else null
+    val current=profile?.let{bacAt(bacDrinks,it,now)*10}?:0.0;val future=profile?.let{bacAt(bacDrinks,it,now.plusMinutes(10))*10}?:current
+    val today=LocalDate.now();val todayStandard=drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==today}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}
+    val active=drinks.firstOrNull{it.active}
     val request=PutDataMapRequest.create("/repere/config").apply{
         dataMap.putLong("synced_at",System.currentTimeMillis())
-        CredentialStore(context).let{dataMap.putString("server",it.server().trimEnd('/'));dataMap.putString("token",it.token())}
+        dataMap.putBoolean("active",active!=null);dataMap.putLong("active_started_at",active?.let{runCatching{parseDrinkTime(it.startedAt).toInstant().toEpochMilli()}.getOrDefault(0L)}?:0L)
+        dataMap.putFloat("today_standard",todayStandard.toFloat());dataMap.putFloat("bac_g_per_l",current.toFloat())
+        dataMap.putString("bac_trend",if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable")
     }.asPutDataRequest().setUrgent()
     runCatching{Wearable.getDataClient(context).putDataItem(request)}
 }

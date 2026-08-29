@@ -83,14 +83,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun refreshState(prefs: SharedPreferences, apply: (active: Boolean, startedAtMillis: Long, todayStandard: Float) -> Unit) {
-        runCatching { Api.state(this@MainActivity) }.onSuccess {
-            val activeDrink = it.optJSONObject("active")
-            val isActive = activeDrink != null
-            val startedAt = activeDrink?.let { d -> parseInstantMillis(d.optString("started_at_utc").ifBlank { d.optString("started_at") }) } ?: 0L
-            val today = it.optDouble("today_standard_drinks", prefs.getFloat("today_standard", 0f).toDouble()).toFloat()
-            cacheForComplication(prefs, isActive, startedAt, today)
-            apply(isActive, startedAt, today)
-        }
+        val isActive=prefs.getBoolean("active",false);val startedAt=prefs.getLong("active_started_at",0L);val today=prefs.getFloat("today_standard",0f)
+        apply(isActive,startedAt,today)
     }
 
     private fun parseInstantMillis(value: String): Long = runCatching {

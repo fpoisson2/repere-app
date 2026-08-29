@@ -6,20 +6,21 @@ import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.WearableListenerService
-import ca.repere.core.CredentialStore
 
 class ConfigListenerService : WearableListenerService() {
     override fun onDataChanged(events: DataEventBuffer) {
         var touched = false
         events.filter { it.type == DataEvent.TYPE_CHANGED && it.dataItem.uri.path == "/repere/config" }.forEach {
             val map = DataMapItem.fromDataItem(it.dataItem).dataMap
-            val server = map.getString("server").orEmpty()
-            val token = map.getString("token").orEmpty()
-            if (server.isNotBlank() && token.isNotBlank()) CredentialStore(this).save(server, token)
+            getSharedPreferences("repere",MODE_PRIVATE).edit()
+                .putBoolean("active",map.getBoolean("active"))
+                .putLong("active_started_at",map.getLong("active_started_at"))
+                .putFloat("today_standard",map.getFloat("today_standard"))
+                .putFloat("bac_g_per_l",map.getFloat("bac_g_per_l"))
+                .putString("bac_trend",map.getString("bac_trend")?:"stable").apply()
             touched = true
         }
-        // The phone bumps /repere/config after each successful sync; refresh the complication so a
-        // drink deleted or edited on the phone shows up on the watch face without opening the app.
+        // The phone owns the offline state; redraw directly from the received cache.
         if (touched) {
             listOf(QuickDrinkComplicationService::class.java,BacComplicationService::class.java).forEach{service->
                 ComplicationDataSourceUpdateRequester.create(this,ComponentName(this,service)).requestUpdateAll()
