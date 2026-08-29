@@ -19,6 +19,7 @@ import ca.repere.core.normalizeDrinkTime
  * keeping this boundary explicit prevents UI code from becoming the network source of truth.
  */
 class SyncRepository(context: Context) {
+    private val syncDataVersion=1
     private val appContext = context.applicationContext
     private val dao = RepereDatabase.get(context).dao()
 
@@ -46,10 +47,13 @@ class SyncRepository(context: Context) {
         val server=credentials.server().trimEnd('/');val token=credentials.token()
         if (server.isBlank() || token.isBlank()) return
         val me=request(server,token,"/api/auth/me","GET",null);bindSyncAccount("$server#${me.optString("id",me.optString("username"))}")
+        val refreshSnapshot=credentials.syncDataVersion()<syncDataVersion
+        if(refreshSnapshot)dao.clearSyncState()
         push(server, token)
         pushCheckIns(server,token);pushGoals(server,token);pushPresets(server,token);pushSettings(server,token)
         pullPresets(server,token)
         pull(server, token)
+        if(refreshSnapshot)credentials.setSyncDataVersion(syncDataVersion)
         pullCheckIns(server,token);pullGoals(server,token);pullSettings(server,token)
     }
 
