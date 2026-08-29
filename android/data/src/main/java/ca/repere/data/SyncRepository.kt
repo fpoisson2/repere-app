@@ -31,6 +31,8 @@ class SyncRepository(context: Context) {
     fun observeSettings():Flow<LocalSettings?> = dao.observeSettings()
     suspend fun recentStartTimes():List<String> = dao.recentStartTimes()
     suspend fun localDayStartHour():Int = dao.settings()?.dayStartHour ?: 8
+    suspend fun localDrinks():List<DrinkEntity> = dao.drinks()
+    suspend fun localSettings():LocalSettings = dao.settings()?:LocalSettings()
 
     suspend fun ensureOfflineDefaults(){
         if(dao.settings()==null)dao.putSettings(LocalSettings())
@@ -71,6 +73,18 @@ class SyncRepository(context: Context) {
     suspend fun createCustom(name:String,volumeMl:Double,abvPercent:Double,quantity:Int,startedAt:String,durationMinutes:Int=30) {
         createOffline(DrinkEntity(UUID.randomUUID().toString(),null,name,null,volumeMl,abvPercent,
             quantity,startedAt,durationMinutes,null,false,true,false,UUID.randomUUID().toString()))
+    }
+
+    suspend fun startFromWear(operationId:String,volumeMl:Double,abvPercent:Double,startedAt:String) {
+        val clientId="wear:$operationId";if(dao.findByClientId(clientId)!=null)return
+        dao.putDrink(DrinkEntity(clientId,null,"Consommation Wear OS","autre",volumeMl,abvPercent,1,
+            startedAt,0,null,true,true,false,operationId))
+    }
+
+    suspend fun finishFromWear(endedAt:String) {
+        val drink=dao.activeDrink()?:return;val end=ca.repere.core.parseDrinkTime(endedAt)
+        val duration=java.time.Duration.between(ca.repere.core.parseDrinkTime(drink.startedAt),end).toMinutes().toInt().coerceAtLeast(0)
+        dao.putDrink(drink.copy(durationMinutes=duration,active=false,dirty=true,pendingMutationId=UUID.randomUUID().toString()))
     }
 
     suspend fun updateOffline(clientId:String,name:String,volumeMl:Double,abvPercent:Double,quantity:Int,startedAt:String,durationMinutes:Int) {

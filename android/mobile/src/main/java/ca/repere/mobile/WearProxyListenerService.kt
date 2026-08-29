@@ -1,11 +1,8 @@
 package ca.repere.mobile
 
-import ca.repere.core.CredentialStore
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,6 +10,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
+import ca.repere.data.SyncRepository
+import ca.repere.data.SyncWorker
 
 /** Relays authenticated Wear requests through the paired phone's network connection. */
 class WearProxyListenerService : WearableListenerService() {
@@ -24,7 +23,7 @@ class WearProxyListenerService : WearableListenerService() {
         scope.launch {
             val request = runCatching { JSONObject(event.data.decodeToString()) }.getOrElse { return@launch }
             val requestId = request.optString("id")
-            val response = runCatching { forward(request) }.fold(
+            val response = runCatching { handle(request) }.fold(
                 onSuccess = { JSONObject().put("ok", true).put("body", it) },
                 onFailure = { JSONObject().put("ok", false).put("error", it.message ?: "Connexion impossible") }
             )
@@ -35,27 +34,13 @@ class WearProxyListenerService : WearableListenerService() {
         }
     }
 
-    private fun forward(request: JSONObject): String {
-        val credentials = CredentialStore(this)
-        val server = credentials.server(BuildConfig.DEFAULT_SERVER_URL).trimEnd('/')
-        val token = credentials.token()
-        if (token.isBlank()) error("Associez d'abord l'application mobile à Répère")
-        val connection = URL(server + request.getString("path")).openConnection() as HttpURLConnection
-        connection.requestMethod = request.getString("method")
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 15_000
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.setRequestProperty("Authorization", "Bearer $token")
-        connection.setRequestProperty("Idempotency-Key", request.getString("id"))
-        request.optString("body").takeIf { it.isNotBlank() }?.let { body ->
-            connection.doOutput = true
-            connection.outputStream.use { it.write(body.toByteArray()) }
-        }
-        val status = connection.responseCode
-        val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
-            ?.bufferedReader()?.use { it.readText() }.orEmpty()
-        if (status !in 200..299) error(runCatching { JSONObject(text).optString("detail") }.getOrDefault("Erreur $status"))
-        return text.ifBlank { "{}" }
+    private suspend fun handle(request:JSONObject):String {
+        val path=request.getString("path");if(path!="/api/wear/start"&&path!="/api/wear/finish")error("Commande Wear inconnue")
+        val repository=SyncRepository(this);val body=JSONObject(request.optString("body").ifBlank{"{}"})
+        if(path=="/api/wear/start")repository.startFromWear(request.getString("id"),body.optDouble("volume_ml",473.0),body.optDouble("abv_percent",5.0),body.getString("started_at"))
+        else repository.finishFromWear(body.getString("ended_at"))
+        SyncWorker.schedule(this);WearStatePublisher.publish(this,repository.localDrinks(),repository.localSettings())
+        return JSONObject().put("stored_locally",true).toString()
     }
 
     override fun onDestroy() {

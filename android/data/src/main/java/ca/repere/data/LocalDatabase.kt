@@ -69,6 +69,12 @@ interface RepereDao {
     @Query("SELECT * FROM drinks WHERE deleted = 0 ORDER BY startedAt DESC")
     fun observeDrinks(): Flow<List<DrinkEntity>>
 
+    @Query("SELECT * FROM drinks WHERE deleted = 0 ORDER BY startedAt DESC")
+    suspend fun drinks():List<DrinkEntity>
+
+    @Query("SELECT * FROM drinks WHERE active = 1 AND deleted = 0 ORDER BY startedAt DESC LIMIT 1")
+    suspend fun activeDrink():DrinkEntity?
+
     @Query("SELECT * FROM presets ORDER BY serverId")
     fun observePresets(): Flow<List<PresetEntity>>
 
