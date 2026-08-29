@@ -54,6 +54,10 @@ type QueuedRequest = {
   body?: string;
 };
 const QUEUE_KEY = "repere-offline-queue";
+const SENSITIVE_QUEUE_KEYS = new Set([
+  "password", "current_password", "new_password", "access_token", "refresh_token",
+  "code", "code_verifier", "sex", "height_cm", "weight_kg",
+]);
 const readQueue = (): QueuedRequest[] => {
   try {
     return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
@@ -76,6 +80,21 @@ const canQueue = (path: string, method: string) =>
   method !== "GET" &&
   (path.startsWith("/drinks") ||
     path.startsWith("/days/sober"));
+const hasSensitiveQueueData = (body: BodyInit | null | undefined) => {
+  if (typeof body !== "string") return false;
+  try {
+    const visit = (value: unknown): boolean => {
+      if (Array.isArray(value)) return value.some(visit);
+      if (!value || typeof value !== "object") return false;
+      return Object.entries(value).some(
+        ([key, child]) => SENSITIVE_QUEUE_KEYS.has(key.toLowerCase()) || visit(child),
+      );
+    };
+    return visit(JSON.parse(body));
+  } catch {
+    return true;
+  }
+};
 const requestId = () => {
   const bytes = new Uint8Array(16);
   if (globalThis.crypto?.getRandomValues) {
@@ -104,7 +123,7 @@ const api = async (path: string, opts: RequestInit = {}) => {
       },
     });
   } catch (error) {
-    if (canQueue(path, method)) {
+    if (canQueue(path, method) && !hasSensitiveQueueData(opts.body)) {
       queueRequest(path, opts, idempotencyKey);
       return { queued: true };
     }

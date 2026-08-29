@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from sqlalchemy import select
 from app.services import aggregate_periods, alcohol, bac_at, bac_projection, import_csv, parse_time, daily_series, sessions
 from app.models import Drink, User
 from app.db import SessionLocal
@@ -272,6 +273,33 @@ def test_oauth_rejects_unknown_client(client):
         "response_type": "code", "client_id": "evil", "redirect_uri": "https://evil.example/cb",
         "code_challenge": "x", "code_challenge_method": "S256"})
     assert r.status_code == 400
+
+
+def test_oauth_loopback_redirect_requires_exact_local_host_and_port(client):
+    params = {"response_type": "code", "client_id": "repere-android",
+              "code_challenge": "x", "code_challenge_method": "S256"}
+    allowed = client.get("/api/oauth/authorize", params={**params, "redirect_uri": "http://localhost:43123/cb"})
+    assert allowed.status_code == 200
+    for redirect_uri in ("http://localhost.evil.example:43123/cb", "http://localhost/cb",
+                         "http://localhost@evil.example:43123/cb", "https://localhost:43123/cb"):
+        rejected = client.get("/api/oauth/authorize", params={**params, "redirect_uri": redirect_uri})
+        assert rejected.status_code == 400
+
+
+def test_oauth_escapes_username_in_consent_page(client):
+    db = SessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.username == "test"))
+        user.username = '<img src=x onerror="alert(1)">'
+        db.commit()
+    finally:
+        db.close()
+    page = client.get("/api/oauth/authorize", params={
+        "response_type": "code", "client_id": "repere-android", "redirect_uri": _REDIRECT,
+        "code_challenge": "x", "code_challenge_method": "S256"})
+    assert page.status_code == 200
+    assert "<img src=x" not in page.text and "&lt;img src=x" in page.text
+
 
 def test_oauth_pkce_verifier_mismatch_rejected(client):
     _, challenge = _pkce()

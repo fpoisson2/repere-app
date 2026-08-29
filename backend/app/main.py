@@ -366,7 +366,7 @@ async def do_import(file:UploadFile=File(...),u:User=Depends(current_user),db:Se
         rows=db.scalars(select(Drink).where(Drink.user_id==u.id,Drink.import_batch_id==result["batch_id"])).all()
         for row in rows:record_sync_event(db,row)
         db.commit();return result
-    except ValueError as e: raise HTTPException(422,str(e))
+    except ValueError: raise HTTPException(422,"Fichier CSV invalide")
 
 @app.get("/api/import/history")
 def import_history(u:User=Depends(current_user),db:Session=Depends(get_db)):
