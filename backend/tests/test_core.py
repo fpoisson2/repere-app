@@ -37,6 +37,26 @@ def test_bac_nonnegative_absorption_elimination():
     assert 0<early<peak and late==0
     assert peak*10==pytest.approx(.392,rel=.01)  # bac_percent -> g/L
 
+def test_old_fully_eliminated_drink_does_not_cancel_a_fresh_one():
+    u=User(weight_kg=75,distribution_ratio=.68,elimination_rate=.015)
+    last_night=Drink(started_at=datetime(2026,8,28,21,0),ended_at=datetime(2026,8,28,21,30),duration_minutes=30,alcohol_grams=20)
+    fresh=Drink(started_at=datetime(2026,8,29,7,0),ended_at=datetime(2026,8,29,7,30),duration_minutes=30,alcohol_grams=20)
+    now=datetime(2026,8,29,7,15)
+    assert bac_at([last_night],u,now)[0]==0
+    fresh_only=bac_at([fresh],u,now)[0]
+    assert fresh_only>0
+    assert bac_at([last_night,fresh],u,now)[0]==pytest.approx(fresh_only)
+
+def test_active_drink_keeps_absorbing_past_its_stale_zero_duration():
+    # A drink started from Wear OS is stored with duration_minutes=0 until it's finished, so while
+    # it's still active the absorption window must track real elapsed time, not the placeholder 0.
+    u=User(weight_kg=75,distribution_ratio=.68,elimination_rate=.015)
+    start=datetime(2026,8,29,7,0)
+    moment=start+timedelta(minutes=45)
+    active=Drink(started_at=start,ended_at=start,duration_minutes=0,alcohol_grams=20,is_active=True)
+    finished=Drink(started_at=start,ended_at=start+timedelta(minutes=30),duration_minutes=0,alcohol_grams=20,is_active=False)
+    assert bac_at([active],u,moment)[0] < bac_at([finished],u,moment)[0]
+
 def test_bac_already_zero_has_no_future_return_time():
     user=User(weight_kg=75,distribution_ratio=.68,elimination_rate=.015)
     result=bac_projection([],user,datetime(2026,8,25,13,0))

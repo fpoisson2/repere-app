@@ -137,18 +137,26 @@ def body_r(user):
     return {"male":.68,"female":.55}.get(sex, user.distribution_ratio or .6)
 
 def bac_at(drinks, user, moment):
-    absorbed=0.; eliminated=0.; active=False
+    # Each drink's own remaining grams is clamped to zero before summing: elimination keeps growing
+    # for as long as a drink is tracked, so an old, fully-metabolized drink must not be able to carry
+    # a negative "debt" forward that cancels out a different, unrelated drink's absorption.
+    remaining=0.; active=False
     r=body_r(user)
     for d in drinks:
         if moment <= d.started_at: continue
-        absorption_minutes=max(30, d.duration_minutes+30)
-        fraction=min(1., (moment-d.started_at).total_seconds()/60/absorption_minutes)
-        absorbed += d.alcohol_grams*fraction
+        elapsed_minutes=(moment-d.started_at).total_seconds()/60
+        # A still-in-progress drink's stored duration isn't final yet (often still 0), so keep
+        # stretching the absorption window to match real elapsed time instead of assuming the
+        # whole thing was downed the moment it was logged.
+        effective_duration=max(d.duration_minutes,elapsed_minutes) if d.is_active else d.duration_minutes
+        absorption_minutes=max(30, effective_duration+30)
+        fraction=min(1., elapsed_minutes/absorption_minutes)
+        absorbed=d.alcohol_grams*fraction
         if fraction < 1: active=True
         full_at=d.started_at+timedelta(minutes=absorption_minutes)
         elimination_hours=max(0.,(moment-full_at).total_seconds()/3600)
-        eliminated += user.elimination_rate*elimination_hours*user.weight_kg*r*10
-    remaining=max(0.,absorbed-eliminated)
+        eliminated=user.elimination_rate*elimination_hours*user.weight_kg*r*10
+        remaining += max(0.,absorbed-eliminated)
     bac=max(0.,remaining/(user.weight_kg*1000*r)*100)
     return bac, remaining, active
 

@@ -4,7 +4,7 @@ import java.time.OffsetDateTime
 import kotlin.math.max
 
 data class BacProfile(val weightKg:Double,val distributionRatio:Double,val eliminationRate:Double=.015)
-data class BacDrink(val startedAt:OffsetDateTime,val durationMinutes:Int,val alcoholGrams:Double)
+data class BacDrink(val startedAt:OffsetDateTime,val durationMinutes:Int,val alcoholGrams:Double,val active:Boolean=false)
 
 fun distributionRatio(sex:String,heightCm:Double?,weightKg:Double,stored:Double=.6):Double {
     if(heightCm!=null&&heightCm>100){
@@ -16,23 +16,32 @@ fun distributionRatio(sex:String,heightCm:Double?,weightKg:Double,stored:Double=
     return if(sex=="male").68 else if(sex=="female").55 else stored
 }
 
-/** Android equivalent of backend services.bac_at. Keep both implementations aligned. */
+/**
+ * Android equivalent of backend services.bac_at. Keep both implementations aligned.
+ * Each drink's remaining grams is clamped to zero individually before summing: elimination keeps
+ * accruing for as long as a drink is tracked, so an old, fully-metabolized drink must not be able
+ * to carry a negative "debt" forward that cancels out a different, unrelated drink's absorption.
+ */
 fun bacAt(drinks:List<BacDrink>,profile:BacProfile,moment:OffsetDateTime):Double {
     val localMoment=moment.toLocalDateTime()
-    var absorbed=0.0;var eliminated=0.0
+    var remainingGrams=0.0
     drinks.forEach { drink ->
         val localStart=drink.startedAt.toLocalDateTime()
         if(!localMoment.isAfter(localStart))return@forEach
-        val absorptionMinutes=max(30,drink.durationMinutes+30)
         val elapsedMinutes=java.time.Duration.between(localStart,localMoment).toMillis()/60_000.0
+        // While a drink is still in progress its stored duration isn't final yet (often still 0),
+        // so keep stretching the absorption window to match real elapsed time instead of assuming
+        // the whole thing was downed the moment it was logged.
+        val effectiveDurationMinutes=if(drink.active)maxOf(drink.durationMinutes.toDouble(),elapsedMinutes) else drink.durationMinutes.toDouble()
+        val absorptionMinutes=max(30.0,effectiveDurationMinutes+30)
         val fraction=(elapsedMinutes/absorptionMinutes).coerceIn(0.0,1.0)
-        absorbed+=drink.alcoholGrams*fraction
+        val absorbed=drink.alcoholGrams*fraction
         val fullAt=localStart.plusMinutes(absorptionMinutes.toLong())
         val eliminationHours=max(0.0,java.time.Duration.between(fullAt,localMoment).toMillis()/3_600_000.0)
-        eliminated+=profile.eliminationRate*eliminationHours*profile.weightKg*profile.distributionRatio*10
+        val eliminated=profile.eliminationRate*eliminationHours*profile.weightKg*profile.distributionRatio*10
+        remainingGrams+=max(0.0,absorbed-eliminated)
     }
-    val remaining=max(0.0,absorbed-eliminated)
-    return max(0.0,remaining/(profile.weightKg*1000*profile.distributionRatio)*100)
+    return max(0.0,remainingGrams/(profile.weightKg*1000*profile.distributionRatio)*100)
 }
 
 fun peakBac(drinks:List<BacDrink>,profile:BacProfile):Double? {
@@ -41,12 +50,7 @@ fun peakBac(drinks:List<BacDrink>,profile:BacProfile):Double? {
     return (0..36*12).maxOf { bacAt(drinks,profile,start.plusMinutes(it*5L)) }
 }
 
-/**
- * bacAt/peakBac sum absorption and elimination across every supplied drink before clamping once
- * at the end, so an old, fully-metabolized drink keeps accruing elimination forever and can cancel
- * out a brand-new drink's absorption. The backend guards against this by only ever querying drinks
- * from the last 36 hours (see services.bac_at callers); do the same before calling bacAt/peakBac.
- */
+/** Mirrors the backend's 36h window on bac_at/bac_projection callers, so peakBac's scan isn't anchored on ancient history. */
 fun recentForBac(drinks:List<BacDrink>,moment:OffsetDateTime,hours:Long=36):List<BacDrink> {
     val since=moment.minusHours(hours)
     return drinks.filter { !it.startedAt.isBefore(since) }
