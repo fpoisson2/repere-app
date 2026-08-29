@@ -61,6 +61,7 @@ import ca.repere.core.BacProfile
 import ca.repere.core.distributionRatio
 import ca.repere.core.peakBac
 import ca.repere.core.bacAt
+import ca.repere.core.recentForBac
 import ca.repere.core.parseDrinkTime
 import ca.repere.core.trackedDay
 import ca.repere.data.HealthLocalRepository
@@ -487,11 +488,12 @@ private fun BodyMetricsSection(context:Context) {
 @Composable
 private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
     val credentials=remember{CredentialStore(context)};val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio()
-    val localDrinks=remember(drinks){drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()}}
     val profile=if(weight!=null&&ratio!=null)BacProfile(weight,ratio,credentials.bacEliminationRate())else null
     if(profile==null){Card(Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White)){Text("Configure ton profil corporel dans Réglages pour estimer l’alcoolémie hors ligne.",Modifier.padding(20.dp),color=Pine.copy(alpha=.7f))};return}
     var now by remember{mutableStateOf(OffsetDateTime.now())}
     LaunchedEffect(Unit){while(true){kotlinx.coroutines.delay(60_000);now=OffsetDateTime.now()}}
+    val allDrinks=remember(drinks){drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()}}
+    val localDrinks=remember(allDrinks,now){recentForBac(allDrinks,now)}
     val current=bacAt(localDrinks,profile,now)*10;val peak=(peakBac(localDrinks,profile)?:0.0)*10
     val future=bacAt(localDrinks,profile,now.plusMinutes(10))*10;val trend=if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable"
     val zero=(1..24*12).firstOrNull{bacAt(localDrinks,profile,now.plusMinutes(it*5L))<=.00001}?.let{now.plusMinutes(it*5L)}

@@ -30,6 +30,17 @@ class BacMathTest {
         assertEquals(java.time.LocalDate.parse("2026-08-27"),trackedDay("2026-08-27T01:30:00-04:00",0))
     }
 
+    @Test fun oldDrinkHistoryMustNotZeroOutTodaysBac() {
+        val now=OffsetDateTime.parse("2026-08-29T18:00:00-04:00")
+        val profile=BacProfile(75.0,.6,.015)
+        val monthOldDrink=BacDrink(now.minusDays(30),30,13.45)
+        val freshDrink=BacDrink(now.minusMinutes(20),30,13.45)
+        val unfiltered=bacAt(listOf(monthOldDrink,freshDrink),profile,now)
+        assertEquals(0.0,unfiltered,0.000001)
+        val filtered=bacAt(recentForBac(listOf(monthOldDrink,freshDrink),now),profile,now)
+        assertTrue(filtered>0.0)
+    }
+
     @Test fun bacUsesCanonicalLocalWallTimeAcrossLegacyOffsets() {
         val drink=OffsetDateTime.parse("2026-08-28T22:00:00Z")
         val localNow=OffsetDateTime.parse("2026-08-28T22:30:00-04:00")

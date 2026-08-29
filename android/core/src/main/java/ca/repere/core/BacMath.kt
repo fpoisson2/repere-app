@@ -40,3 +40,14 @@ fun peakBac(drinks:List<BacDrink>,profile:BacProfile):Double? {
     val start=drinks.minOf { it.startedAt }.minusHours(1)
     return (0..36*12).maxOf { bacAt(drinks,profile,start.plusMinutes(it*5L)) }
 }
+
+/**
+ * bacAt/peakBac sum absorption and elimination across every supplied drink before clamping once
+ * at the end, so an old, fully-metabolized drink keeps accruing elimination forever and can cancel
+ * out a brand-new drink's absorption. The backend guards against this by only ever querying drinks
+ * from the last 36 hours (see services.bac_at callers); do the same before calling bacAt/peakBac.
+ */
+fun recentForBac(drinks:List<BacDrink>,moment:OffsetDateTime,hours:Long=36):List<BacDrink> {
+    val since=moment.minusHours(hours)
+    return drinks.filter { !it.startedAt.isBefore(since) }
+}

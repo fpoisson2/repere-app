@@ -12,7 +12,7 @@ import java.time.OffsetDateTime
 object WearStatePublisher {
     fun publish(context:Context,drinks:List<DrinkEntity>,settings:LocalSettings){
         val credentials=CredentialStore(context);val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio();val now=OffsetDateTime.now()
-        val inputs=drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()}
+        val inputs=recentForBac(drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789)}.getOrNull()},now)
         val profile=if(weight!=null&&ratio!=null)BacProfile(weight,ratio,credentials.bacEliminationRate())else null
         val current=profile?.let{bacAt(inputs,it,now)*10}?:0.0;val future=profile?.let{bacAt(inputs,it,now.plusMinutes(10))*10}?:current
         val todayStandard=drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==LocalDate.now()}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity)}
