@@ -1,7 +1,10 @@
 # Repère
 
+**Understand your drinking without giving up your data.**
+
 Repère is a free and open-source alcohol tracking platform for people who want to keep control
-of their infrastructure and personal data.
+of their infrastructure and personal data. It turns habits into useful perspective: the app makes
+patterns visible and leaves the decisions to the person who knows the context best — you.
 
 It combines a self-hosted web server with an autonomous Android application. The phone remains
 fully usable without an account, Internet connection, or running server. When synchronization is
@@ -9,6 +12,22 @@ enabled, local changes are sent opportunistically to the user's own Repère serv
 when connectivity returns.
 
 > Blood alcohol concentration values are mathematical estimates, never authorization to drive.
+
+A bilingual public presentation of the project is served at `/about` on every deployment.
+
+## Why this project exists
+
+I wanted a Wear OS app to log a drink quickly from my wrist, without friction. The apps I could
+find either did not fit how I wanted to track, or came with ads, accounts, and cloud services I
+did not want. I care about self-hosting and open source, so rather than settle I built the thing
+I wanted and then kept going a little further:
+
+- **A watch-first quick entry** grew into a full Android app that works entirely offline.
+- **A place to keep the history** became a self-hosted server I run on my own hardware.
+- **No ads, no tracking, no mandatory account** — the data lives on my phone and my server, and
+  nowhere else.
+
+Repère is the result. If it is useful to you, it is yours to inspect, run, and modify.
 
 ## Principles
 
