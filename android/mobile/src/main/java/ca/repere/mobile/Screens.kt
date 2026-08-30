@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.*
@@ -16,11 +17,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -108,9 +114,9 @@ private fun SectionCard(title: String, subtitle: String? = null, body: @Composab
         shape = RoundedCornerShape(22.dp),
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .65f))
-            Spacer(Modifier.height(10.dp))
+            Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Pine.copy(alpha = .7f), modifier = Modifier.padding(top = 2.dp))
+            Spacer(Modifier.height(14.dp))
             body()
         }
     }
@@ -118,9 +124,9 @@ private fun SectionCard(title: String, subtitle: String? = null, body: @Composab
 
 @Composable
 private fun StatRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-        Text(label, Modifier.weight(1f), color = Pine.copy(alpha = .8f))
-        Text(value, fontWeight = FontWeight.Bold)
+    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f).padding(end = 10.dp), style = MaterialTheme.typography.bodyLarge, color = Pine.copy(alpha = .8f))
+        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
     }
 }
 
@@ -129,116 +135,291 @@ private fun JSONObject.numOrNull(key: String): Double? =
 
 /* ---------- charts ---------- */
 
+private val SHORT_DATE = DateTimeFormatter.ofPattern("d MMM", Locale.CANADA_FRENCH)
+private val DAY_DATE = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.CANADA_FRENCH)
+
+private fun axisText(value: Double): String = when {
+    value == 0.0 -> "0"
+    abs(value) >= 10 -> String.format(Locale.CANADA_FRENCH, "%.0f", value)
+    abs(value) >= 1 -> String.format(Locale.CANADA_FRENCH, "%.1f", value)
+    else -> String.format(Locale.CANADA_FRENCH, "%.2f", value)
+}
+
+/** Left-hand scale shared by every chart: haut / milieu / bas, aligned with the canvas gridlines. */
 @Composable
-private fun ChartFrame(topLabel: String, bottomStart: String, bottomEnd: String, content: @Composable () -> Unit) {
-    Column {
-        Row(Modifier.fillMaxWidth()) {
-            Text(topLabel, style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .6f))
-        }
-        content()
-        Row(Modifier.fillMaxWidth()) {
-            Text(bottomStart, style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .5f))
-            Spacer(Modifier.weight(1f))
-            Text(bottomEnd, style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .5f))
+private fun ChartYAxis(max: Double, height: Dp, min: Double = 0.0) {
+    Column(Modifier.height(height).padding(end = 6.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.End) {
+        listOf(max, (max + min) / 2, min).forEach {
+            Text(axisText(it), style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f), maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun BarChart(values: List<Double>, colors: List<Color>, threshold: Double? = null, modifier: Modifier = Modifier, labels:List<String> = emptyList(), unit:String="") {
-    val max = (values.maxOrNull() ?: 0.0).coerceAtLeast(threshold ?: 0.0).coerceAtLeast(0.01)
-    var selected by remember(values){mutableStateOf<Int?>(null)}
-    Column { Canvas(modifier.fillMaxWidth().height(140.dp).pointerInput(values){detectTapGestures{tap->if(values.isNotEmpty())selected=((tap.x/size.width)*values.size).toInt().coerceIn(0,values.lastIndex)}}) {
-        if (values.isEmpty()) return@Canvas
-        // horizontal gridlines at 0 / 50 / 100 %
-        listOf(0f, .5f, 1f).forEach { f ->
-            val y = size.height * (1 - f)
-            drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
-        }
-        val gap = 1.5f
-        val bw = (size.width - gap * (values.size - 1)) / values.size
-        values.forEachIndexed { i, v ->
-            val h = (v / max * size.height).toFloat()
-            drawRect(colors.getOrElse(i) { Pine }, Offset(i * (bw + gap), size.height - h),
-                androidx.compose.ui.geometry.Size(bw.coerceAtLeast(1f), h))
-        }
-        threshold?.let { t ->
-            val y = (size.height - (t / max * size.height)).toFloat()
-            drawLine(Color(0xFFD9534F), Offset(0f, y), Offset(size.width, y), 2f)
-        }
-        selected?.let{i->val x=(i+.5f)*size.width/values.size;drawLine(Amber,Offset(x,0f),Offset(x,size.height),3f)}
-    };selected?.let{i->ChartSelection((labels.getOrNull(i)?:"Valeur ${i+1}"),"${fmt(values[i],2)}$unit")} }
+private fun ChartXAxis(start: String, end: String) {
+    if (start.isBlank() && end.isBlank()) return
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Text(start, style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f))
+        Spacer(Modifier.weight(1f))
+        Text(end, style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f))
+    }
 }
 
-/** Daily bars behind one or more overlay lines, shared Y scale. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ComboChart(bars: List<Double>, lines: List<Pair<Color, List<Double?>>>, threshold: Double? = null, modifier: Modifier = Modifier, labels:List<String> = emptyList(), unit:String="", lineNames:List<String> = listOf("7 j","30 j","90 j")) {
+private fun ChartLegend(items: List<Pair<Color, String>>) {
+    FlowRow(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items.forEach { (color, label) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(11.dp).background(color, RoundedCornerShape(3.dp)))
+                Spacer(Modifier.width(6.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge, color = Pine.copy(alpha = .75f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChartSelection(label: String, value: String, detail: String? = null) {
+    Surface(color = Mint.copy(alpha = .6f), shape = RoundedCornerShape(14.dp), modifier = Modifier.padding(top = 10.dp).fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
+            Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = Pine)
+            Text(value, style = MaterialTheme.typography.bodyLarge, color = Pine.copy(alpha = .9f))
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = Pine.copy(alpha = .7f))
+        }
+    }
+}
+
+@Composable
+private fun ChartHint(text: String = "Touche le graphique ou fais glisser ton doigt pour lire le détail d’un point.") {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = Pine.copy(alpha = .5f), modifier = Modifier.padding(top = 10.dp))
+}
+
+private fun DrawScope.gridlines() {
+    listOf(0f, .25f, .5f, .75f, 1f).forEach { f ->
+        val y = size.height * (1 - f)
+        drawLine(Pine.copy(alpha = if (f == 0f || f == 1f) .24f else .10f), Offset(0f, y), Offset(size.width, y), 1.5f)
+    }
+}
+
+private fun DrawScope.thresholdLine(threshold: Double?, max: Double) {
+    threshold?.let { t ->
+        val y = (size.height - (t / max * size.height)).toFloat()
+        drawLine(Color(0xFFD9534F), Offset(0f, y), Offset(size.width, y), 3f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 9f)))
+    }
+}
+
+/** Metric tile mirroring the web `.metric` card: small label, large value, optional explanation on tap. */
+@Composable
+private fun MetricTile(label: String, value: String, hint: String? = null, modifier: Modifier = Modifier) {
+    var open by remember(label) { mutableStateOf(false) }
+    Surface(color = Mint.copy(alpha = .45f), shape = RoundedCornerShape(16.dp), modifier = modifier) {
+        Column(
+            Modifier.pointerInput(hint) { if (hint != null) detectTapGestures { open = !open } }
+                .defaultMinSize(minHeight = 74.dp).padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelLarge, color = Pine.copy(alpha = .75f))
+                if (hint != null) { Spacer(Modifier.width(5.dp)); Text("?", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black, color = Pine.copy(alpha = .45f)) }
+            }
+            Spacer(Modifier.height(3.dp))
+            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Pine)
+            if (open && hint != null) Text(hint, style = MaterialTheme.typography.bodyMedium, color = Pine.copy(alpha = .75f), modifier = Modifier.padding(top = 8.dp))
+        }
+    }
+}
+
+/** Two-column grid of [MetricTile]; each entry is label / value / optional explanation. */
+@Composable
+private fun MetricGrid(items: List<Triple<String, String, String?>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { (label, value, hint) -> MetricTile(label, value, hint, Modifier.weight(1f)) }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Labelled horizontal bars — far more legible than 5-7 hairline vertical bars on a phone. */
+@Composable
+private fun CategoryBars(rows: List<Triple<String, Double, Color>>, unit: String, digits: Int = 1) {
+    val max = rows.maxOfOrNull { it.second }?.coerceAtLeast(.01) ?: .01
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        rows.forEach { (label, value, color) ->
+            Column {
+                Row(Modifier.fillMaxWidth()) {
+                    Text(label, Modifier.weight(1f).padding(end = 10.dp), style = MaterialTheme.typography.bodyLarge, color = Pine.copy(alpha = .85f))
+                    Text("${fmt(value, digits)}$unit", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Pine)
+                }
+                Spacer(Modifier.height(5.dp))
+                Box(Modifier.fillMaxWidth().height(14.dp).background(Mint.copy(alpha = .55f), RoundedCornerShape(7.dp))) {
+                    Box(Modifier.fillMaxWidth((value / max).toFloat().coerceIn(.001f, 1f)).height(14.dp).background(color, RoundedCornerShape(7.dp)))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricChips(metric: String, onSelect: (String) -> Unit) {
+    Row(Modifier.padding(bottom = 6.dp)) {
+        listOf("standards" to "Standards", "grams" to "Grammes").forEach { (value, label) ->
+            FilterChip(metric == value, { onSelect(value) }, { Text(label) }, Modifier.padding(end = 8.dp))
+        }
+    }
+}
+
+@Composable
+private fun BarChart(
+    values: List<Double>, colors: List<Color>, threshold: Double? = null, modifier: Modifier = Modifier,
+    labels: List<String> = emptyList(), unit: String = "", height: Dp = 180.dp, digits: Int = 2,
+    xStart: String = "", xEnd: String = "",
+) {
+    val max = (values.maxOrNull() ?: 0.0).coerceAtLeast(threshold ?: 0.0).coerceAtLeast(0.01)
+    var selected by remember(values) { mutableStateOf<Int?>(null) }
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            ChartYAxis(max, height)
+            Canvas(
+                modifier.weight(1f).height(height)
+                    .pointerInput(values) { detectTapGestures { tap -> if (values.isNotEmpty()) selected = ((tap.x / size.width) * values.size).toInt().coerceIn(0, values.lastIndex) } }
+                    .pointerInput(values) { detectHorizontalDragGestures { change, _ -> if (values.isNotEmpty()) selected = ((change.position.x / size.width) * values.size).toInt().coerceIn(0, values.lastIndex) } },
+            ) {
+                gridlines()
+                if (values.isEmpty()) return@Canvas
+                val slot = size.width / values.size
+                val gap = if (values.size > 40) 1f else 3f
+                val bw = (slot - gap).coerceAtLeast(1.5f)
+                values.forEachIndexed { i, v ->
+                    val h = (v / max * size.height).toFloat()
+                    if (h > 0f) drawRect(colors.getOrElse(i) { Pine }, Offset(i * slot + gap / 2, size.height - h), Size(bw, h.coerceAtLeast(2f)))
+                }
+                thresholdLine(threshold, max)
+                selected?.let { i ->
+                    drawRect(Amber.copy(alpha = .22f), Offset(i * slot, 0f), Size(slot, size.height))
+                    val h = (values[i] / max * size.height).toFloat()
+                    drawRect(Amber, Offset(i * slot + gap / 2, size.height - h.coerceAtLeast(2f)), Size(bw, h.coerceAtLeast(2f)))
+                }
+            }
+        }
+        ChartXAxis(xStart, xEnd)
+        val i = selected
+        if (i != null) ChartSelection(labels.getOrNull(i) ?: "Valeur ${i + 1}", "${fmt(values[i], digits)}$unit") else ChartHint()
+    }
+}
+
+/** Daily bars behind one or more overlay lines, shared Y scale, scrubbable. */
+@Composable
+private fun ComboChart(
+    bars: List<Double>, lines: List<Pair<Color, List<Double?>>>, threshold: Double? = null, modifier: Modifier = Modifier,
+    labels: List<String> = emptyList(), unit: String = "", lineNames: List<String> = listOf("7 jours", "30 jours", "90 jours"),
+    height: Dp = 230.dp, xStart: String = "", xEnd: String = "", thresholdName: String? = null, barName: String = "Par jour",
+) {
     val allLine = lines.flatMap { it.second }.filterNotNull()
     val max = (bars.maxOrNull() ?: 0.0)
         .coerceAtLeast(allLine.maxOrNull() ?: 0.0)
         .coerceAtLeast(threshold ?: 0.0)
         .coerceAtLeast(0.01)
-    var selected by remember(bars){mutableStateOf<Int?>(null)}
-    Column { Canvas(modifier.fillMaxWidth().height(150.dp).pointerInput(bars){detectTapGestures{tap->if(bars.isNotEmpty())selected=((tap.x/size.width)*bars.size).toInt().coerceIn(0,bars.lastIndex)}}) {
-        listOf(0f, .5f, 1f).forEach { f ->
-            val y = size.height * (1 - f)
-            drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
-        }
-        if (bars.isNotEmpty()) {
-            val bw = size.width / bars.size
-            bars.forEachIndexed { i, v ->
-                val h = (v / max * size.height).toFloat()
-                drawRect(Pine.copy(alpha = .18f), Offset(i * bw, size.height - h),
-                    androidx.compose.ui.geometry.Size((bw - 1f).coerceAtLeast(1f), h))
+    var selected by remember(bars) { mutableStateOf<Int?>(null) }
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            ChartYAxis(max, height)
+            Canvas(
+                modifier.weight(1f).height(height)
+                    .pointerInput(bars) { detectTapGestures { tap -> if (bars.isNotEmpty()) selected = ((tap.x / size.width) * bars.size).toInt().coerceIn(0, bars.lastIndex) } }
+                    .pointerInput(bars) { detectHorizontalDragGestures { change, _ -> if (bars.isNotEmpty()) selected = ((change.position.x / size.width) * bars.size).toInt().coerceIn(0, bars.lastIndex) } },
+            ) {
+                gridlines()
+                if (bars.isEmpty()) return@Canvas
+                val slot = size.width / bars.size
+                fun center(i: Int) = (i + .5f) * slot
+                fun y(v: Double) = (size.height - (v / max * size.height)).toFloat()
+                bars.forEachIndexed { i, v ->
+                    val h = (v / max * size.height).toFloat()
+                    if (h > 0f) drawRect(Pine.copy(alpha = .22f), Offset(i * slot + .5f, size.height - h.coerceAtLeast(2f)), Size((slot - 1f).coerceAtLeast(1.5f), h.coerceAtLeast(2f)))
+                }
+                thresholdLine(threshold, max)
+                lines.forEach { (color, series) ->
+                    if (series.count { it != null } < 2) return@forEach
+                    val path = Path(); var started = false
+                    series.forEachIndexed { i, v ->
+                        if (v == null) { started = false; return@forEachIndexed }
+                        if (!started) { path.moveTo(center(i), y(v)); started = true } else path.lineTo(center(i), y(v))
+                    }
+                    drawPath(path, color, style = Stroke(width = 5f, cap = StrokeCap.Round))
+                }
+                selected?.let { i ->
+                    val x = center(i)
+                    drawLine(Amber, Offset(x, 0f), Offset(x, size.height), 3f)
+                    drawCircle(Amber, 9f, Offset(x, y(bars[i])))
+                    lines.forEach { (color, series) ->
+                        series.getOrNull(i)?.let { v -> drawCircle(Color.White, 11f, Offset(x, y(v))); drawCircle(color, 8f, Offset(x, y(v))) }
+                    }
+                }
             }
         }
-        threshold?.let { t ->
-            val y = (size.height - (t / max * size.height)).toFloat()
-            drawLine(Color(0xFFD9534F), Offset(0f, y), Offset(size.width, y), 2f)
-        }
-        lines.forEach { (color, series) ->
-            if (series.count { it != null } < 2) return@forEach
-            val step = size.width / (series.size - 1).coerceAtLeast(1)
-            val path = Path(); var started = false
-            series.forEachIndexed { i, v ->
-                if (v == null) return@forEachIndexed
-                val x = i * step
-                val y = (size.height - (v / max * size.height)).toFloat()
-                if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
-            }
-            drawPath(path, color, style = Stroke(width = 3f, cap = StrokeCap.Round))
-        }
-        selected?.let{i->val x=i*size.width/(bars.size-1).coerceAtLeast(1);drawLine(Amber,Offset(x,0f),Offset(x,size.height),3f);drawCircle(Amber,6f,Offset(x,(size.height-(bars[i]/max*size.height)).toFloat()))}
-    };selected?.let{i->val details=buildString{append("Jour : ${fmt(bars[i],2)}$unit");lines.forEachIndexed{n,(_,s)->s.getOrNull(i)?.let{append(" · ${lineNames.getOrNull(n)?:"Moy."} : ${fmt(it,2)}$unit")}}};ChartSelection(labels.getOrNull(i)?:"Point ${i+1}",details)} }
+        ChartXAxis(xStart, xEnd)
+        ChartLegend(
+            buildList {
+                add(Pine.copy(alpha = .22f) to barName)
+                lines.forEachIndexed { n, pair -> add(pair.first to "Moyenne mobile ${lineNames.getOrNull(n) ?: ""}".trim()) }
+                if (threshold != null && thresholdName != null) add(Color(0xFFD9534F) to thresholdName)
+            },
+        )
+        val i = selected
+        if (i != null) ChartSelection(
+            labels.getOrNull(i) ?: "Point ${i + 1}",
+            "Journée : ${fmt(bars[i], 2)}$unit",
+            lines.mapIndexedNotNull { n, pair -> pair.second.getOrNull(i)?.let { "Moy. ${lineNames.getOrNull(n) ?: "mobile"} : ${fmt(it, 2)}$unit" } }
+                .joinToString(" · ").takeIf { it.isNotBlank() },
+        ) else ChartHint()
+    }
 }
 
 @Composable
-private fun LineChart(values: List<Double?>, modifier: Modifier = Modifier, color: Color = Pine, labels:List<String> = emptyList(), unit:String="") {
+private fun LineChart(
+    values: List<Double?>, modifier: Modifier = Modifier, color: Color = Pine, labels: List<String> = emptyList(),
+    unit: String = "", height: Dp = 190.dp, xStart: String = "", xEnd: String = "",
+) {
     val present = values.filterNotNull()
     val min = present.minOrNull() ?: 0.0
-    val max = (present.maxOrNull() ?: 1.0)
+    val max = present.maxOrNull() ?: 1.0
     val span = (max - min).takeIf { it > 0 } ?: 1.0
-    var selected by remember(values){mutableStateOf<Int?>(null)}
-    Column { Canvas(modifier.fillMaxWidth().height(130.dp).pointerInput(values){detectTapGestures{tap->if(values.isNotEmpty())selected=((tap.x/size.width)*values.size).toInt().coerceIn(0,values.lastIndex)}}) {
-        listOf(0f, .5f, 1f).forEach { f ->
-            val y = size.height * (1 - f)
-            drawLine(Pine.copy(alpha = .12f), Offset(0f, y), Offset(size.width, y), 1f)
+    var selected by remember(values) { mutableStateOf<Int?>(null) }
+    fun index(x: Float, width: Int): Int = if (values.size <= 1) 0 else ((x / width) * (values.size - 1) + .5f).toInt().coerceIn(0, values.lastIndex)
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            ChartYAxis(max, height, min)
+            Canvas(
+                modifier.weight(1f).height(height)
+                    .pointerInput(values) { detectTapGestures { tap -> if (values.isNotEmpty()) selected = index(tap.x, size.width) } }
+                    .pointerInput(values) { detectHorizontalDragGestures { change, _ -> if (values.isNotEmpty()) selected = index(change.position.x, size.width) } },
+            ) {
+                gridlines()
+                if (present.size < 2) return@Canvas
+                val step = size.width / (values.size - 1).coerceAtLeast(1)
+                fun y(v: Double) = (size.height - ((v - min) / span * size.height)).toFloat()
+                val path = Path(); var started = false
+                values.forEachIndexed { i, v ->
+                    if (v == null) { started = false; return@forEachIndexed }
+                    if (!started) { path.moveTo(i * step, y(v)); started = true } else path.lineTo(i * step, y(v))
+                }
+                drawPath(path, color, style = Stroke(width = 5f, cap = StrokeCap.Round))
+                if (values.size <= 45) values.forEachIndexed { i, v -> if (v != null) drawCircle(color, 5f, Offset(i * step, y(v))) }
+                selected?.let { i ->
+                    val x = i * step
+                    drawLine(Amber, Offset(x, 0f), Offset(x, size.height), 3f)
+                    values[i]?.let { v -> drawCircle(Color.White, 11f, Offset(x, y(v))); drawCircle(Amber, 8f, Offset(x, y(v))) }
+                }
+            }
         }
-        if (present.size < 2) return@Canvas
-        val step = size.width / (values.size - 1).coerceAtLeast(1)
-        val path = Path(); var started = false
-        values.forEachIndexed { i, v ->
-            if (v == null) return@forEachIndexed
-            val x = i * step
-            val y = (size.height - ((v - min) / span * size.height)).toFloat()
-            if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
-        }
-        drawPath(path, color, style = Stroke(width = 3f, cap = StrokeCap.Round))
-        selected?.let{i->val x=i*size.width/(values.size-1).coerceAtLeast(1);drawLine(Amber,Offset(x,0f),Offset(x,size.height),3f)}
-    };selected?.let{i->ChartSelection(labels.getOrNull(i)?:"Point ${i+1}",values[i]?.let{"${fmt(it,2)}$unit"}?:"Aucune donnée")} }
+        ChartXAxis(xStart, xEnd)
+        val i = selected
+        if (i != null) ChartSelection(labels.getOrNull(i) ?: "Point ${i + 1}", values[i]?.let { "${fmt(it, 2)}$unit" } ?: "Aucune donnée") else ChartHint()
+    }
 }
-
-@Composable private fun ChartSelection(label:String,value:String){Surface(color=Mint.copy(alpha=.45f),shape=RoundedCornerShape(10.dp),modifier=Modifier.padding(top=8.dp).fillMaxWidth()){Column(Modifier.padding(horizontal=12.dp,vertical=8.dp)){Text(label,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.labelMedium);Text(value,style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.75f))}}}
 
 private fun fmt(value: Double?, digits: Int = 1): String =
     if (value == null) "—" else String.format(Locale.CANADA_FRENCH, "%.${digits}f", value)
@@ -262,16 +443,23 @@ fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<Tra
         PageHeaderLite("Analyse", "Stats")
         StatsPeriodSelector(start, end, custom, onPreset = { days -> start=LocalDate.now().minusDays(days-1L);end=LocalDate.now();custom=false }, onCustom = { a,b -> start=a;end=b;custom=true })
         SectionCard("Période observée", "Du ${start.format(STAT_DATE)} au ${end.format(STAT_DATE)}") {
-            StatRow("Jours observés",observed.size.toString());StatRow("Jours sans alcool","${observed.count{it.sober}} (${fmt(observed.count{it.sober}*100.0/observed.size.coerceAtLeast(1),0)} %)")
-            StatRow("Jours sans donnée",days.count{!it.observed}.toString());StatRow("Total standards",fmt(totalStd,2));StatRow("Moyenne / jour observé","${fmt(totalStd/observed.size.coerceAtLeast(1),2)} std")
-            StatRow("Maximum","${fmt(observed.maxOfOrNull{it.standards},2)} std · ${fmt(observed.maxOfOrNull{it.grams},0)} g")
+            MetricGrid(listOf(
+                Triple("Jours observés", observed.size.toString(), null),
+                Triple("Jours sans alcool", "${observed.count{it.sober}} · ${fmt(observed.count{it.sober}*100.0/observed.size.coerceAtLeast(1),0)} %", null),
+                Triple("Jours sans donnée", days.count{!it.observed}.toString(), null),
+                Triple("Total standards", fmt(totalStd,1), null),
+                Triple("Moyenne / jour observé", "${fmt(totalStd/observed.size.coerceAtLeast(1),2)} std", null),
+                Triple("Maximum", "${fmt(observed.maxOfOrNull{it.standards},2)} std", "Journée observée la plus élevée : ${fmt(observed.maxOfOrNull{it.grams},0)} g d’alcool pur."),
+            ))
+            Spacer(Modifier.height(10.dp))
+            Text("Total : ${fmt(totalGrams,0)} g d’alcool pur", style = MaterialTheme.typography.bodyMedium, color = Pine.copy(alpha=.7f))
         }
-        DistributionSummary(observed)
         LocalTrendSection(days)
+        DistributionSummary(observed,settings.standardDrinkGrams)
         HeatmapSection(days)
+        DistributionChart(days)
         WeekdayChart(days)
         HourChart(drinking.flatMap{it.drinks})
-        DistributionChart(days)
         FirstDrinkChart(drinking)
         DayToDayChart(days)
         PeriodBars("Évolution par semaine",aggregateLocal(days,false))
@@ -286,68 +474,122 @@ private data class LocalStatDay(val date:LocalDate,val grams:Double,val standard
 private data class LocalPeriod(val label:String,val standards:Double,val alcoholFree:Int)
 
 @Composable private fun LocalTrendSection(days:List<LocalStatDay>){
-    var metric by remember{mutableStateOf("standards")};val daily=days.map{if(metric=="grams")it.grams else it.standards}
-    fun moving(n:Int)=days.indices.map{i->days.subList(maxOf(0,i-n+1),i+1).filter{it.observed}.map{if(metric=="grams")it.grams else it.standards}.takeIf{it.isNotEmpty()}?.average()}
-    SectionCard("Moyennes mobiles","Barres = jour · vert = 7 j · ambre = 30 j · gris = 90 j"){
-        Row{listOf("standards" to "Standards","grams" to "Grammes").forEach{(v,l)->FilterChip(metric==v,{metric=v},{Text(l)},Modifier.padding(end=6.dp))}}
-        ChartFrame(if(metric=="grams")"g / jour" else "standards / jour",days.firstOrNull()?.date.toString().takeLast(5),days.lastOrNull()?.date.toString().takeLast(5)){
-            ComboChart(daily,listOf(Pine to moving(7),Amber to moving(30),Pine.copy(alpha=.4f) to moving(90)),if(metric=="standards")3.0 else null,labels=days.map{it.date.toString()},unit=if(metric=="grams")" g" else " std")
-        }
+    var metric by remember{mutableStateOf("standards")}
+    // The chart opens on the first day that actually carries data: leading empty days say nothing.
+    val rows=remember(days){days.dropWhile{!it.observed}}
+    val daily=rows.map{if(metric=="grams")it.grams else it.standards}
+    fun moving(n:Int)=rows.indices.map{i->rows.subList(maxOf(0,i-n+1),i+1).filter{it.observed}.map{if(metric=="grams")it.grams else it.standards}.takeIf{it.isNotEmpty()}?.average()}
+    SectionCard("Tendance lissée","Consommation quotidienne et moyennes mobiles 7 / 30 / 90 jours"){
+        MetricChips(metric){metric=it}
+        if(rows.isEmpty()){Text("Aucune journée avec données dans cette période.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
+        ComboChart(daily,listOf(Pine to moving(7),Amber to moving(30),Pine.copy(alpha=.45f) to moving(90)),
+            threshold=if(metric=="standards")3.0 else null,
+            labels=rows.map{it.date.format(DAY_DATE)},unit=if(metric=="grams")" g" else " std",
+            xStart=rows.first().date.format(SHORT_DATE),xEnd=rows.last().date.format(SHORT_DATE),
+            thresholdName="Seuil 3 standards",barName=if(metric=="grams")"Grammes par jour" else "Standards par jour")
+        Spacer(Modifier.height(8.dp))
+        Text("Départ au ${rows.first().date.format(STAT_DATE)}, première journée avec données de la période.",style=MaterialTheme.typography.bodyMedium,color=Pine.copy(alpha=.65f))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun HeatmapSection(days:List<LocalStatDay>){val max=days.maxOfOrNull{it.grams}?.coerceAtLeast(.01)?:.01;var selected by remember(days){mutableStateOf<LocalStatDay?>(null)}
-    SectionCard("Calendrier de consommation","Intensité quotidienne · calcul local"){
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement=Arrangement.spacedBy(3.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){days.forEach{d->Box(Modifier.size(14.dp).background(if(selected==d)Amber else if(!d.observed)Color(0xFFE2E5E3) else if(d.sober)Mint.copy(alpha=.65f)else Pine.copy(alpha=(.2+.8*d.grams/max).toFloat()),RoundedCornerShape(2.dp)).pointerInput(d){detectTapGestures{selected=d}})}}
-        Spacer(Modifier.height(8.dp));Text("${days.firstOrNull()?.date?:"—"} — ${days.lastOrNull()?.date?:"—"}",style=MaterialTheme.typography.labelSmall,color=Pine.copy(alpha=.55f))
-        selected?.let{ChartSelection(it.date.toString(),if(!it.observed)"Aucune donnée" else if(it.sober)"Journée sobre · 0 g" else "${fmt(it.grams,1)} g · ${fmt(it.standards,2)} std · ${it.drinks.sumOf{d->d.quantity}} consommation${if(it.drinks.sumOf{d->d.quantity}>1)"s"else""}")}
+    SectionCard("Calendrier de consommation","Intensité quotidienne · touche une journée"){
+        FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){days.forEach{d->Box(Modifier.size(19.dp).background(if(selected==d)Amber else if(!d.observed)Color(0xFFE2E5E3) else if(d.sober)Mint.copy(alpha=.85f)else Pine.copy(alpha=(.25+.75*d.grams/max).toFloat()),RoundedCornerShape(4.dp)).pointerInput(d){detectTapGestures{selected=d}})}}
+        Spacer(Modifier.height(10.dp))
+        ChartLegend(listOf(Color(0xFFE2E5E3) to "Sans donnée",Mint.copy(alpha=.85f) to "Journée sobre",Pine.copy(alpha=.45f) to "Faible",Pine to "Élevée"))
+        Text("${days.firstOrNull()?.date?.format(STAT_DATE)?:"—"} — ${days.lastOrNull()?.date?.format(STAT_DATE)?:"—"}",style=MaterialTheme.typography.bodyMedium,color=Pine.copy(alpha=.6f),modifier=Modifier.padding(top=8.dp))
+        val day=selected
+        if(day!=null)ChartSelection(day.date.format(DAY_DATE),if(!day.observed)"Aucune donnée" else if(day.sober)"Journée sobre · 0 g" else "${fmt(day.grams,1)} g · ${fmt(day.standards,2)} std",if(day.observed&&!day.sober)"${day.drinks.sumOf{d->d.quantity}} consommation${if(day.drinks.sumOf{d->d.quantity}>1)"s"else""}" else null)
+        else ChartHint("Touche une case pour voir le détail de la journée.")
     }
 }
 
 private fun aggregateLocal(days:List<LocalStatDay>,monthly:Boolean):List<LocalPeriod> = days.groupBy{if(monthly)it.date.withDayOfMonth(1) else it.date.minusDays(it.date.dayOfWeek.value-1L)}.toSortedMap().map{(date,rows)->LocalPeriod(date.toString(),rows.filter{it.observed}.sumOf{it.standards},rows.count{it.sober})}.takeLast(12)
 
+private fun periodLabel(label:String,monthly:Boolean):String = runCatching{LocalDate.parse(label).format(if(monthly)DateTimeFormatter.ofPattern("MMMM yyyy",Locale.CANADA_FRENCH) else SHORT_DATE)}.getOrDefault(label)
+
 @Composable private fun PeriodBars(title:String,rows:List<LocalPeriod>,monthly:Boolean=false){SectionCard(title,"Standards totaux · 12 dernières périodes"){
-    ChartFrame("standards",rows.firstOrNull()?.label?.takeLast(5)?:"",rows.lastOrNull()?.label?.takeLast(5)?:""){BarChart(rows.map{it.standards},rows.map{Pine},labels=rows.map{it.label},unit=" std")}
-    rows.takeLast(if(monthly)12 else 6).forEach{val label=if(monthly)runCatching{LocalDate.parse(it.label).format(DateTimeFormatter.ofPattern("MMM yyyy",Locale.CANADA_FRENCH))}.getOrDefault(it.label)else it.label;StatRow(label,"${fmt(it.standards,1)} std · ${it.alcoholFree} j sobres")}
+    BarChart(rows.map{it.standards},rows.map{Pine},labels=rows.map{if(monthly)periodLabel(it.label,true) else "Semaine du ${periodLabel(it.label,false)}"},unit=" std",digits=1,height=170.dp,xStart=rows.firstOrNull()?.let{periodLabel(it.label,monthly)}?:"",xEnd=rows.lastOrNull()?.let{periodLabel(it.label,monthly)}?:"")
+    Spacer(Modifier.height(6.dp))
+    rows.takeLast(if(monthly)12 else 6).reversed().forEach{StatRow(if(monthly)periodLabel(it.label,true) else periodLabel(it.label,false),"${fmt(it.standards,1)} std · ${it.alcoholFree} j sobres")}
 }}
 
 @Composable private fun SessionsSection(drinks:List<DrinkEntity>,standardGrams:Double=CANADIAN_STANDARD_GRAMS){val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();sorted.forEach{d->val at=runCatching{parseDrinkTime(d.startedAt)}.getOrNull();val last=sessions.lastOrNull()?.lastOrNull()?.let{runCatching{parseDrinkTime(it.startedAt).plusMinutes(it.durationMinutes.toLong())}.getOrNull()};if(last==null||at==null||java.time.Duration.between(last,at).toHours()>=8)sessions.add(mutableListOf(d))else sessions.last().add(d)}
-    SectionCard("Sessions","Écart de 8 h · calcul local") { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,standardGrams)};StatRow(rows.first().startedAt.take(10),"${fmt(std,2)} std · ${rows.sumOf{it.quantity}} consommation${if(rows.sumOf{it.quantity}>1)"s"else""}") } }
+    SectionCard("Sessions","Écart de 8 h · calcul local") { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,standardGrams)};StatRow(runCatching{LocalDate.parse(rows.first().startedAt.take(10)).format(STAT_DATE)}.getOrDefault(rows.first().startedAt.take(10)),"${fmt(std,2)} std · ${rows.sumOf{it.quantity}} consommation${if(rows.sumOf{it.quantity}>1)"s"else""}") } }
 }
 
-@Composable private fun WeekdayChart(days:List<LocalStatDay>){val labels=listOf("Lun","Mar","Mer","Jeu","Ven","Sam","Dim");val values=(1..7).map{w->days.filter{it.date.dayOfWeek.value==w}.sumOf{it.grams}}
-    SectionCard("Grammes par jour de semaine","Somme cumulée sur la période"){BarChart(values,values.map{Pine},labels=labels,unit=" g")}}
+@Composable private fun WeekdayChart(days:List<LocalStatDay>){val labels=listOf("Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche");val values=(1..7).map{w->days.filter{it.date.dayOfWeek.value==w}.sumOf{it.grams}}
+    SectionCard("Grammes par jour de semaine","Somme cumulée sur la période"){CategoryBars(labels.mapIndexed{i,l->Triple(l,values[i],if(values[i]>=(values.maxOrNull()?:0.0)&&values[i]>0)Amber else Pine)}," g",0)}}
 
 @Composable private fun HourChart(drinks:List<DrinkEntity>){val values=(0..23).map{hour->drinks.filter{runCatching{parseDrinkTime(it.startedAt).hour==hour}.getOrDefault(false)}.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}};val groups=drinks.groupBy{it.startedAt.take(10)}
     fun decimal(t:OffsetDateTime)=t.hour+t.minute/60.0
     val first=groups.values.mapNotNull{rows->rows.mapNotNull{runCatching{parseDrinkTime(it.startedAt)}.getOrNull()}.minOrNull()?.let(::decimal)}.averageOrNull()
     val last=groups.values.mapNotNull{rows->rows.mapNotNull{d->runCatching{parseDrinkTime(d.startedAt).plusMinutes(d.durationMinutes.toLong())}.getOrNull()}.maxOrNull()?.let(::decimal)}.averageOrNull()
     fun clock(v:Double?)=v?.let{val mins=(it*60).roundToInt().mod(24*60);"${(mins/60).toString().padStart(2,'0')}:${(mins%60).toString().padStart(2,'0')}"}?:"—"
-    SectionCard("Par heure de début","Hauteur = grammes d’alcool pur · axe horizontal = heure"){BarChart(values,values.map{if(it>0)Pine else Mint},labels=(0..23).map{"${it.toString().padStart(2,'0')} h"},unit=" g");StatRow("Première consommation habituelle",clock(first));StatRow("Dernière consommation habituelle",clock(last))}}
+    SectionCard("Par heure de début","Hauteur = grammes d’alcool pur · axe horizontal = heure de la journée"){
+        BarChart(values,values.map{if(it>0)Pine else Mint},labels=(0..23).map{"${it.toString().padStart(2,'0')} h — ${(it+1).mod(24).toString().padStart(2,'0')} h"},unit=" g",digits=1,height=170.dp,xStart="00 h",xEnd="23 h")
+        Spacer(Modifier.height(8.dp))
+        MetricGrid(listOf(Triple("Première consommation",clock(first),"Heure moyenne de la première consommation d’une journée."),Triple("Dernière consommation",clock(last),"Heure moyenne de fin de la dernière consommation d’une journée.")))
+    }}
 
-@Composable private fun DistributionChart(days:List<LocalStatDay>){val observed=days.filter{it.observed};val labels=listOf("0","≤ 1","1–2","2–4","> 4");val values=listOf(observed.count{it.sober},observed.count{it.standards in .000001..1.0},observed.count{it.standards>1&&it.standards<=2},observed.count{it.standards>2&&it.standards<=4},observed.count{it.standards>4}).map{it.toDouble()}
-    SectionCard("Répartition des journées","Nombre de jours par intensité"){BarChart(values,listOf(Mint,Pine.copy(alpha=.35f),Pine.copy(alpha=.55f),Amber,Color(0xFFD9534F)),labels=labels,unit=" j")}}
+@Composable private fun DistributionChart(days:List<LocalStatDay>){val observed=days.filter{it.observed};val labels=listOf("0 standard","≤ 1 standard","1 à 2 standards","2 à 4 standards","Plus de 4 standards");val values=listOf(observed.count{it.sober},observed.count{it.standards in .000001..1.0},observed.count{it.standards>1&&it.standards<=2},observed.count{it.standards>2&&it.standards<=4},observed.count{it.standards>4}).map{it.toDouble()}
+    val colors=listOf(Mint,Pine.copy(alpha=.4f),Pine.copy(alpha=.65f),Amber,Color(0xFFD9534F))
+    SectionCard("Répartition des journées","Nombre de journées observées par intensité"){CategoryBars(labels.mapIndexed{i,l->Triple(l,values[i],colors[i])}," j",0)}}
 
-@Composable private fun FirstDrinkChart(days:List<LocalStatDay>){val rows=days.mapNotNull{day->day.drinks.minByOrNull{it.startedAt}?.let{d->runCatching{parseDrinkTime(d.startedAt).let{day.date.toString() to (it.hour+it.minute/60.0)}}.getOrNull()}}
-    SectionCard("Heure de première consommation","Journées avec consommation"){BarChart(rows.map{it.second},rows.map{Pine},labels=rows.map{it.first},unit=" h")}}
+@Composable private fun FirstDrinkChart(days:List<LocalStatDay>){val rows=days.mapNotNull{day->day.drinks.minByOrNull{it.startedAt}?.let{d->runCatching{parseDrinkTime(d.startedAt).let{day.date to (it.hour+it.minute/60.0)}}.getOrNull()}}
+    SectionCard("Heure de première consommation","Journées avec consommation"){
+        if(rows.isEmpty()){Text("Aucune consommation dans cette période.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
+        BarChart(rows.map{it.second},rows.map{Pine},labels=rows.map{it.first.format(DAY_DATE)},unit=" h",digits=1,height=170.dp,xStart=rows.first().first.format(SHORT_DATE),xEnd=rows.last().first.format(SHORT_DATE))
+    }}
 
-@Composable private fun DayToDayChart(days:List<LocalStatDay>){val changes=days.mapIndexed{i,d->if(i==0||!d.observed||!days[i-1].observed)null else d.standards-days[i-1].standards}
-    SectionCard("Consommation d’un jour à l’autre","Variation en standards"){LineChart(changes,color=Pine,labels=days.map{it.date.toString()},unit=" std")}}
+@Composable private fun DayToDayChart(days:List<LocalStatDay>){val rows=days.dropWhile{!it.observed};val changes=rows.mapIndexed{i,d->if(i==0||!d.observed||!rows[i-1].observed)null else d.standards-rows[i-1].standards}
+    SectionCard("Consommation d’un jour à l’autre","Variation en standards par rapport à la veille"){
+        if(changes.count{it!=null}<2){Text("Pas assez de journées consécutives observées.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
+        LineChart(changes,color=Pine,labels=rows.map{it.date.format(DAY_DATE)},unit=" std",xStart=rows.first().date.format(SHORT_DATE),xEnd=rows.last().date.format(SHORT_DATE))
+    }}
 
 private fun List<Double>.averageOrNull()=if(isEmpty())null else average()
 private fun quantile(sorted:List<Double>,q:Double):Double?{if(sorted.isEmpty())return null;val p=(sorted.size-1)*q;val lo=p.toInt();val hi=kotlin.math.ceil(p).toInt();return if(lo==hi)sorted[lo]else sorted[lo]+(sorted[hi]-sorted[lo])*(p-lo)}
 
-@Composable private fun DistributionSummary(days:List<LocalStatDay>){var metric by remember{mutableStateOf("standards")};val values=days.map{if(metric=="grams")it.grams else it.standards}.sorted();val mean=values.averageOrNull();val sd=mean?.let{m->kotlin.math.sqrt(values.sumOf{(it-m)*(it-m)}/values.size.coerceAtLeast(1))};val unit=if(metric=="grams")" g"else" standards"
-    SectionCard("Distribution complète","Par journée observée · 1 consommation standard canadienne = 13,45 g d’alcool pur."){
-        Row{listOf("standards" to "Standards","grams" to "Grammes").forEach{(v,l)->FilterChip(metric==v,{metric=v},{Text(l)},Modifier.padding(end=6.dp))}}
-        StatRow("Moyenne",fmt(mean,2)+unit);StatRow("Médiane",fmt(quantile(values,.5),2)+unit);StatRow("Quartile 1",fmt(quantile(values,.25),2)+unit);StatRow("Quartile 3",fmt(quantile(values,.75),2)+unit);StatRow("P90",fmt(quantile(values,.9),2)+unit);StatRow("Écart-type",fmt(sd,2)+unit);StatRow("Coeff. variation",if(mean==null||mean==0.0)"—"else fmt(sd!!/mean,2));StatRow("Minimum",fmt(values.minOrNull(),2)+unit);StatRow("Maximum",fmt(values.maxOrNull(),2)+unit)
+// Same wording as the web `distributionHelp` tooltips, so both clients explain a statistic identically.
+private val DISTRIBUTION_HELP = mapOf(
+    "Moyenne" to "Votre niveau moyen par journée observée. Elle sert à suivre l’évolution générale, mais peut être tirée vers le haut par quelques journées très élevées.",
+    "Médiane" to "Votre journée la plus représentative : la moitié des journées est en dessous et l’autre moitié au-dessus. Utile lorsque quelques épisodes élevés déforment la moyenne.",
+    "Quartile 1" to "25 % des journées observées sont à ce niveau ou moins. Peut servir de repère réaliste pour vos journées de plus faible consommation.",
+    "Quartile 3" to "75 % des journées observées sont à ce niveau ou moins. Au-dessus, vous entrez dans le quart de vos journées les plus élevées.",
+    "P90" to "90 % des journées observées sont à ce niveau ou moins. Les valeurs supérieures correspondent à vos 10 % de journées les plus élevées et peuvent aider à repérer les épisodes exceptionnels.",
+    "Écart-type" to "Indique à quel point vos journées varient autour de la moyenne. Une valeur faible signifie un rythme stable; une valeur élevée indique des écarts importants d’une journée à l’autre.",
+    "Coeff. variation" to "Rapporte la variabilité à votre moyenne. Pratique pour voir si votre rythme devient plus régulier même lorsque votre niveau moyen change.",
+    "Minimum" to "Votre plus faible journée réellement observée. Les journées sobres explicitement consignées peuvent donc donner une valeur de zéro.",
+    "Maximum" to "Votre journée observée la plus élevée. Sert à identifier l’ampleur de votre pic historique, sans en faire un record à battre.",
+)
+
+@Composable private fun DistributionSummary(days:List<LocalStatDay>,standardGrams:Double=CANADIAN_STANDARD_GRAMS){var metric by remember{mutableStateOf("standards")};val values=days.map{if(metric=="grams")it.grams else it.standards}.sorted();val mean=values.averageOrNull();val sd=mean?.let{m->kotlin.math.sqrt(values.sumOf{(it-m)*(it-m)}/values.size.coerceAtLeast(1))};val unit=if(metric=="grams")" g"else" std"
+    SectionCard("Distribution complète","Par journée observée · 1 consommation standard = ${fmt(standardGrams,2)} g d’alcool pur."){
+        MetricChips(metric){metric=it}
+        MetricGrid(listOf(
+            Triple("Moyenne",fmt(mean,2)+unit,DISTRIBUTION_HELP["Moyenne"]),
+            Triple("Médiane",fmt(quantile(values,.5),2)+unit,DISTRIBUTION_HELP["Médiane"]),
+            Triple("Quartile 1",fmt(quantile(values,.25),2)+unit,DISTRIBUTION_HELP["Quartile 1"]),
+            Triple("Quartile 3",fmt(quantile(values,.75),2)+unit,DISTRIBUTION_HELP["Quartile 3"]),
+            Triple("P90",fmt(quantile(values,.9),2)+unit,DISTRIBUTION_HELP["P90"]),
+            Triple("Écart-type",fmt(sd,2)+unit,DISTRIBUTION_HELP["Écart-type"]),
+            Triple("Coeff. variation",if(mean==null||mean==0.0)"—"else fmt(sd!!/mean,2),DISTRIBUTION_HELP["Coeff. variation"]),
+            Triple("Minimum",fmt(values.minOrNull(),2)+unit,DISTRIBUTION_HELP["Minimum"]),
+            Triple("Maximum",fmt(values.maxOrNull(),2)+unit,DISTRIBUTION_HELP["Maximum"]),
+        ))
+        Spacer(Modifier.height(10.dp))
+        Text("Touche une tuile pour l’explication de la statistique.",style=MaterialTheme.typography.labelLarge,color=Pine.copy(alpha=.5f))
     }}
 
-@Composable private fun LocalHealthSection(rows:List<HealthAggregateEntity>,start:LocalDate,end:LocalDate){val filtered=rows.filter{it.localDate>=start.toString()&&it.localDate<=end.toString()};val types=filtered.map{it.recordType}.distinct();if(types.isEmpty()){SectionCard("Données de santé"){Text("Aucune donnée Health Connect locale pour cette période.",color=Pine.copy(alpha=.7f))};return};var metric by remember(types){mutableStateOf(types.first())};val selected=filtered.filter{it.recordType==metric}.groupBy{it.localDate}.toSortedMap();val values=selected.mapValues{(_,rs)->rs.mapNotNull{runCatching{JSONObject(it.payload).optDouble("value")}.getOrNull()}.averageOrNull()};val unit=filtered.firstOrNull{it.recordType==metric}?.let{runCatching{JSONObject(it.payload).optString("unit")}.getOrDefault("")}?:""
+@Composable private fun LocalHealthSection(rows:List<HealthAggregateEntity>,start:LocalDate,end:LocalDate){val filtered=rows.filter{it.localDate>=start.toString()&&it.localDate<=end.toString()};val types=filtered.map{it.recordType}.distinct();if(types.isEmpty()){SectionCard("Données de santé"){Text("Aucune donnée Health Connect locale pour cette période.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f))};return};var metric by remember(types){mutableStateOf(types.first())};val selected=filtered.filter{it.recordType==metric}.groupBy{it.localDate}.toSortedMap();val values=selected.mapValues{(_,rs)->rs.mapNotNull{runCatching{JSONObject(it.payload).optDouble("value")}.getOrNull()}.averageOrNull()};val unit=filtered.firstOrNull{it.recordType==metric}?.let{runCatching{JSONObject(it.payload).optString("unit")}.getOrDefault("")}?:""
     SectionCard("Données de santé","Données locales Health Connect"){
-        Row(Modifier.horizontalScroll(rememberScrollState())){types.forEach{t->FilterChip(metric==t,{metric=t},{Text(HEALTH_LABELS[t]?:t)},Modifier.padding(end=6.dp))}}
-        Spacer(Modifier.height(8.dp));LineChart(values.values.toList(),color=Amber,labels=values.keys.toList(),unit=if(unit.isBlank())""else" $unit");StatRow("Moyenne",fmt(values.values.filterNotNull().averageOrNull(),1)+(if(unit.isBlank())""else" $unit"));StatRow("Jours avec donnée",values.size.toString())
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom=6.dp)){types.forEach{t->FilterChip(metric==t,{metric=t},{Text(HEALTH_LABELS[t]?:t)},Modifier.padding(end=8.dp))}}
+        val suffix=if(unit.isBlank())""else" $unit"
+        LineChart(values.values.toList(),color=Amber,labels=values.keys.map{runCatching{LocalDate.parse(it).format(DAY_DATE)}.getOrDefault(it)},unit=suffix,xStart=values.keys.firstOrNull()?.let{runCatching{LocalDate.parse(it).format(SHORT_DATE)}.getOrDefault(it)}?:"",xEnd=values.keys.lastOrNull()?.let{runCatching{LocalDate.parse(it).format(SHORT_DATE)}.getOrDefault(it)}?:"")
+        Spacer(Modifier.height(10.dp))
+        MetricGrid(listOf(Triple("Moyenne",fmt(values.values.filterNotNull().averageOrNull(),1)+suffix,null),Triple("Jours avec donnée",values.size.toString(),null)))
     }}
 
 private val STAT_DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)
@@ -373,80 +615,6 @@ private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onP
             val picked=state.selectedDateMillis?.let{Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()}?:initial
             if(target=="start"){draftStart=picked;dialog="end"}else{draftEnd=picked;if(draftStart<=picked)onCustom(draftStart,picked);dialog=null}
         }){Text(if(target=="start") "Suivant" else "Appliquer")}},dismissButton={TextButton(onClick={dialog=null}){Text("Annuler")}}){DatePicker(state)}
-    }
-}
-
-@Composable
-private fun TrendSection(trends: JSONObject, start:LocalDate, end:LocalDate) {
-    var metric by remember { mutableStateOf("standards") }
-    val moving = trends.optJSONObject("moving_averages") ?: JSONObject()
-    fun series(window: String, field: String): List<Double?> {
-        val arr = moving.optJSONArray(window) ?: JSONArray()
-        return (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("date") in start.toString()..end.toString() }.map { r -> if (r.isNull(field)) null else r.optDouble(field) }
-    }
-    val daily = series("7", "daily_$metric").map { it ?: 0.0 }
-    val ma7 = series("7", metric);val ma30 = series("30", metric);val ma90 = series("90", metric)
-    val unit=if(metric=="grams")"g / jour" else "standards / jour"
-    val weekly = trends.optJSONArray("weekly") ?: JSONArray()
-    SectionCard("Moyennes mobiles", "Barres = jour · vert = 7 j · ambre = 30 j · gris = 90 j") {
-        Row { listOf("standards" to "Standards","grams" to "Grammes").forEach { (value,label) -> FilterChip(selected=metric==value,onClick={metric=value},label={Text(label)},modifier=Modifier.padding(end=6.dp)) } }
-        ChartFrame(unit, start.toString().takeLast(5), end.toString().takeLast(5)) {
-            ComboChart(daily, listOf(Pine to ma7, Amber to ma30, Pine.copy(alpha=.4f) to ma90), threshold = if(metric=="standards")3.0 else null)
-        }
-        Spacer(Modifier.height(12.dp))
-        val lastWeeks = (maxOf(0, weekly.length() - 6) until weekly.length()).map { weekly.optJSONObject(it) }
-        lastWeeks.forEach { w ->
-            if (w != null) StatRow(
-                w.optString("period_start"),
-                "${fmt(w.numOrNull("total_standards"), 1)} std · ${w.optInt("alcohol_free_days")} j sans alcool",
-            )
-        }
-    }
-}
-
-@Composable
-private fun HealthSection(health: JSONObject) {
-    val types = health.optJSONArray("types") ?: JSONArray()
-    if (types.length() == 0) {
-        SectionCard("Santé", null) {
-            Text(
-                "Aucune donnée de santé importée. Active Health Connect dans Réglages → Application.",
-                color = Pine.copy(alpha = .7f),
-            )
-        }
-        return
-    }
-    var metric by remember { mutableStateOf(types.optString(0)) }
-    val days = health.optJSONArray("days") ?: JSONArray()
-    val correlations = health.optJSONObject("correlations") ?: JSONObject()
-    val series = ArrayList<Double?>()
-    val values = ArrayList<Double>()
-    for (i in 0 until days.length()) {
-        val h = days.optJSONObject(i)?.optJSONObject("health")
-        val v = if (h != null && h.has(metric) && !h.isNull(metric)) h.optDouble(metric) else null
-        series.add(v)
-        if (v != null) values.add(v)
-    }
-    val avg = if (values.isEmpty()) null else values.sum() / values.size
-    val corr = correlations.numOrNull(metric)
-    SectionCard("Santé et consommation", "Corrélation de Pearson · n'implique pas de causalité") {
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
-            for (i in 0 until types.length()) {
-                val t = types.optString(i)
-                FilterChip(
-                    selected = metric == t, onClick = { metric = t },
-                    label = { Text(HEALTH_LABELS[t] ?: t) },
-                    modifier = Modifier.padding(end = 6.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        LineChart(series, color = Amber)
-        Spacer(Modifier.height(10.dp))
-        val shown = if (metric == "sleep") avg?.div(60.0) else avg
-        StatRow("${HEALTH_LABELS[metric] ?: metric} — moyenne", fmt(shown, if (metric == "steps") 0 else 1) + if (metric == "sleep") " h" else "")
-        StatRow("Corrélation avec la consommation", if (corr == null) "—" else "r = ${fmt(corr, 2)} · ${strength(corr)}")
-        StatRow("Jours avec donnée", values.size.toString())
     }
 }
 
