@@ -126,8 +126,12 @@ class SyncRepository(context: Context) {
         do {
             val response=request(server,token,"/api/sync?cursor=$cursor","GET",null)
             response.optJSONObject("bac_profile")?.let { profile ->
-                val weight=profile.optDouble("weight_kg",Double.NaN);val ratio=profile.optDouble("distribution_ratio",Double.NaN)
-                if(weight.isFinite()&&ratio.isFinite())CredentialStore(appContext).saveBacProfile(weight,ratio,profile.optDouble("elimination_rate",.015))
+                val local=CredentialStore(appContext);val weight=profile.optDouble("weight_kg",Double.NaN);val ratio=profile.optDouble("distribution_ratio",Double.NaN)
+                // Profile inputs are synchronized; BAC output is always recalculated locally.
+                if(weight.isFinite()&&ratio.isFinite()){
+                    local.saveBacProfile(weight,ratio,profile.optDouble("elimination_rate",.015))
+                    local.saveBodyMetrics(profile.optString("sex","unspecified"),profile.optDouble("height_cm",Double.NaN).takeIf{it.isFinite()})
+                }
             }
             val tracked=response.optJSONArray("tracked_days") ?: JSONArray();val trackedRows=(0 until tracked.length()).map{tracked.getJSONObject(it)}.map{TrackedDayEntity(it.getString("day"),it.optBoolean("sober",true))}
             dao.clearTrackedDays();if(trackedRows.isNotEmpty())dao.putTrackedDays(trackedRows)

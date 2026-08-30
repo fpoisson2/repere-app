@@ -14,6 +14,14 @@ class BacMathTest {
         assertTrue(peak>early);assertEquals(.299,peak*10,.01);assertEquals(0.0,late,0.000001)
     }
 
+    @Test fun peakScanIncludesLatestDrinkWhenOldDrinkIsStillInRecentWindow() {
+        val profile=BacProfile(75.0,.6)
+        val start=OffsetDateTime.parse("2026-08-28T08:00:00-04:00")
+        val drinks=listOf(BacDrink(start,30,13.45),BacDrink(start.plusHours(35),30,44.78))
+        val peak=peakBac(drinks,profile)!!
+        assertTrue(peak>bacAt(drinks,profile,start.plusHours(35)))
+    }
+
     @Test fun watsonRatioMatchesBounds() {
         assertTrue(distributionRatio("male",180.0,80.0) in .4..0.9)
         assertEquals(.55,distributionRatio("female",null,70.0),.0001)

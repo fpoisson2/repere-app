@@ -574,16 +574,8 @@ private fun DrinkEditorDialog(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)), {}, readOnly = true, label = { Text("Date") },
-                        leadingIcon = { Icon(Icons.Filled.CalendarToday, null) }, modifier = Modifier.weight(1f),
-                        trailingIcon = { TextButton(onClick = { pickDate = true }) { Text("Choisir") } },
-                    )
-                    OutlinedTextField(
-                        time.format(DateTimeFormatter.ofPattern("HH:mm")), {}, readOnly = true, label = { Text("Heure") },
-                        leadingIcon = { Icon(Icons.Filled.Schedule, null) }, modifier = Modifier.weight(1f),
-                        trailingIcon = { TextButton(onClick = { pickTime = true }) { Text("Choisir") } },
-                    )
+                    DateTimeChoice("Date",date.format(DateTimeFormatter.ofPattern("d MMM yyyy",Locale.CANADA_FRENCH)),Icons.Filled.CalendarToday,{pickDate=true},Modifier.weight(1f))
+                    DateTimeChoice("Heure",time.format(DateTimeFormatter.ofPattern("HH:mm")),Icons.Filled.Schedule,{pickTime=true},Modifier.weight(1f))
                 }
                 OutlinedTextField(
                     duration, { duration = it.filter(Char::isDigit) }, label = { Text("Durée") }, suffix = { Text("min") },
@@ -615,6 +607,16 @@ private fun DrinkEditorDialog(
             state.selectedDateMillis?.let { date = java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate() }
             pickDate=false
         }){Text("OK")}},dismissButton={TextButton(onClick={pickDate=false}){Text("Annuler")}}){ DatePicker(state=state) }
+    }
+}
+
+@Composable private fun DateTimeChoice(label:String,value:String,icon:ImageVector,onClick:()->Unit,modifier:Modifier=Modifier){
+    Card(modifier,shape=RoundedCornerShape(16.dp),colors=CardDefaults.cardColors(containerColor=Paper)){
+        Column(Modifier.padding(horizontal=12.dp,vertical=10.dp)){
+            Row(verticalAlignment=Alignment.CenterVertically){Icon(icon,null,tint=Pine.copy(alpha=.72f),modifier=Modifier.size(17.dp));Spacer(Modifier.width(6.dp));Text(label,style=MaterialTheme.typography.labelMedium,color=Pine.copy(alpha=.72f),maxLines=1)}
+            Text(value,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Bold,color=Pine,maxLines=1,softWrap=false,modifier=Modifier.padding(top=4.dp))
+            TextButton(onClick=onClick,contentPadding=PaddingValues(0.dp),modifier=Modifier.heightIn(min=36.dp)){Text("Choisir")}
+        }
     }
 }
 
@@ -684,7 +686,7 @@ private fun BodyMetricsSection(context:Context) {
             if(!it.isNull("elimination_rate"))elimination=it.optDouble("elimination_rate").toString()
             val remoteRatio=if (it.isNull("effective_distribution_ratio")) it.doubleOrNull("distribution_ratio") else it.optDouble("effective_distribution_ratio")
             if(remoteRatio!=null)ratio=remoteRatio
-            if(weight.toDoubleOrNull()!=null&&ratio!=null)localProfile.saveBacProfile(weight.toDouble(),ratio!!)
+            if(weight.toDoubleOrNull()!=null&&ratio!=null){localProfile.saveBacProfile(weight.toDouble(),ratio!!,elimination.toDoubleOrNull()?:.015);localProfile.saveBodyMetrics(sex,height.toDoubleOrNull())}
         }
     }
     val sexLabel = mapOf("unspecified" to "Non précisé", "female" to "Femme", "male" to "Homme")
@@ -711,7 +713,7 @@ private fun BodyMetricsSection(context:Context) {
             height.toDoubleOrNull()?.let { body.put("height_cm", it) }
             body.put("elimination_rate",localElimination)
             runCatching { Net.send(context, "/api/settings", body, "PATCH") }
-                .onSuccess { ratio = it.doubleOrNull("distribution_ratio") ?: ratio;localProfile.saveBacProfile(localWeight,ratio!!);message = "Profil enregistré localement · synchronisation planifiée" }
+                .onSuccess { message = "Profil enregistré localement · sauvegarde planifiée" }
                 .onFailure { message = "Profil enregistré sur l’appareil · synchronisation en attente" }
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil") }

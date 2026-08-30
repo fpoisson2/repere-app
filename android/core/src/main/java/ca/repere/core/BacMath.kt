@@ -47,7 +47,9 @@ fun bacAt(drinks:List<BacDrink>,profile:BacProfile,moment:OffsetDateTime):Double
 fun peakBac(drinks:List<BacDrink>,profile:BacProfile):Double? {
     if(drinks.isEmpty()||profile.weightKg<=0||profile.distributionRatio<=0)return null
     val start=drinks.minOf { it.startedAt }.minusHours(1)
-    return (0..36*12).maxOf { bacAt(drinks,profile,start.plusMinutes(it*5L)) }
+    // Match backend bac_projection: recent input may begin 36 h before the latest drink,
+    // so the scan must extend far enough to include that drink's absorption and decline.
+    return (0..7*24*12).maxOf { bacAt(drinks,profile,start.plusMinutes(it*5L)) }
 }
 
 /** Mirrors the backend's 36h window on bac_at/bac_projection callers, so peakBac's scan isn't anchored on ancient history. */
