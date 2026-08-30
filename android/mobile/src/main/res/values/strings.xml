@@ -40,4 +40,170 @@
     <string name="elimination_rate">Élimination (%/h)</string>
     <string name="elimination_rate_hint">Valeur personnelle utilisée par l’estimation d’alcoolémie</string>
     <string name="invalid_elimination_rate">Le taux d’élimination doit être entre 0,005 et 0,030.</string>
+
+    <!-- Stats : graphiques partagés -->
+    <string name="chart_hint">Touche le graphique ou fais glisser ton doigt pour lire le détail d’un point.</string>
+    <string name="chart_hint_day_cell">Touche une case pour voir le détail de la journée.</string>
+    <string name="chart_hint_slot_cell">Touche une case pour lire le cumul d’un créneau.</string>
+    <string name="chart_point">Point %1$d</string>
+    <string name="chart_value">Valeur %1$d</string>
+    <string name="chart_no_data">Aucune donnée</string>
+    <string name="chart_day_value">Journée : %1$s</string>
+    <string name="chart_moving_average">Moyenne mobile %1$s</string>
+    <string name="chart_moving_average_short">Moy. %1$s : %2$s</string>
+    <string name="chart_series_per_day">Par jour</string>
+    <string name="chart_up_from_previous">En hausse par rapport à la veille</string>
+    <string name="chart_down_from_previous">En baisse par rapport à la veille</string>
+    <string name="chart_same_as_previous">Identique à la veille</string>
+    <string name="chart_signed_value">%1$s%2$s</string>
+    <string name="chart_slot_label">%1$s · %2$s h</string>
+    <string name="chart_pure_alcohol_grams">%1$s g d’alcool pur</string>
+    <string name="chart_period_total">Cumul de la période observée</string>
+    <string name="unit_grams">g</string>
+    <string name="unit_standards">std</string>
+    <string name="unit_days">j</string>
+    <string name="metric_standards">Standards</string>
+    <string name="metric_grams">Grammes</string>
+
+    <!-- Stats : en-tête et période -->
+    <string name="stats_eyebrow">Analyse</string>
+    <string name="stats_period_title">Période observée</string>
+    <string name="stats_period_range">Du %1$s au %2$s</string>
+    <string name="stats_preset_days">%1$d j</string>
+    <string name="stats_preset_year">1 an</string>
+    <string name="stats_preset_custom">Personnalisée</string>
+    <string name="stats_next">Suivant</string>
+    <string name="stats_apply">Appliquer</string>
+    <string name="stats_cancel">Annuler</string>
+    <string name="stats_observed_days">Jours observés</string>
+    <string name="stats_alcohol_free_days">Jours sans alcool</string>
+    <string name="stats_days_without_data">Jours sans donnée</string>
+    <string name="stats_total_standards">Total standards</string>
+    <string name="stats_average_per_observed_day">Moyenne / jour observé</string>
+    <string name="stats_maximum">Maximum</string>
+    <string name="stats_count_with_percent">%1$d · %2$s %%</string>
+    <string name="stats_highest_day_help">Journée observée la plus élevée : %1$s g d’alcool pur.</string>
+    <string name="stats_total_pure_alcohol">Total : %1$s g d’alcool pur</string>
+
+    <!-- Stats : tendance -->
+    <string name="stats_trend_title">Tendance lissée</string>
+    <string name="stats_trend_subtitle">Consommation quotidienne et moyennes mobiles 7 / 30 / 90 jours</string>
+    <string name="stats_trend_empty">Aucune journée avec données dans cette période.</string>
+    <string name="stats_trend_threshold">Seuil 3 standards</string>
+    <string name="stats_trend_bars_grams">Grammes par jour</string>
+    <string name="stats_trend_bars_standards">Standards par jour</string>
+    <string name="stats_trend_start">Départ au %1$s, première journée avec données de la période.</string>
+    <string name="stats_window_7">7 jours</string>
+    <string name="stats_window_30">30 jours</string>
+    <string name="stats_window_90">90 jours</string>
+
+    <!-- Stats : calendrier -->
+    <string name="stats_calendar_title">Calendrier de consommation</string>
+    <string name="stats_calendar_subtitle">Une colonne par semaine · une ligne par jour de semaine</string>
+    <string name="stats_legend_no_data">Sans donnée</string>
+    <string name="stats_legend_sober">Journée sobre</string>
+    <string name="stats_legend_low">Faible</string>
+    <string name="stats_legend_high">Élevée</string>
+    <string name="stats_sober_day_value">Journée sobre · 0 g</string>
+    <string name="stats_day_value">%1$s g · %2$s std</string>
+
+    <!-- Stats : semaine type et heures -->
+    <string name="stats_weekhour_title">Semaine type</string>
+    <string name="stats_weekhour_subtitle">Grammes d’alcool pur par jour de semaine et heure de début</string>
+    <string name="stats_weekday_title">Grammes par jour de semaine</string>
+    <string name="stats_weekday_subtitle">Somme cumulée sur la période</string>
+    <string name="stats_hour_title">Par heure de début</string>
+    <string name="stats_hour_subtitle">Hauteur = grammes d’alcool pur · axe horizontal = heure de la journée</string>
+    <string name="stats_hour_slot">%1$s h — %2$s h</string>
+    <string name="stats_hour_axis_00">00 h</string>
+    <string name="stats_hour_axis_06">06 h</string>
+    <string name="stats_hour_axis_12">12 h</string>
+    <string name="stats_hour_axis_18">18 h</string>
+    <string name="stats_hour_axis_23">23 h</string>
+    <string name="stats_first_drink_metric">Première consommation</string>
+    <string name="stats_first_drink_metric_help">Heure moyenne de la première consommation d’une journée.</string>
+    <string name="stats_last_drink_metric">Dernière consommation</string>
+    <string name="stats_last_drink_metric_help">Heure moyenne de fin de la dernière consommation d’une journée.</string>
+
+    <!-- Stats : répartition -->
+    <string name="stats_distribution_days_title">Répartition des journées</string>
+    <string name="stats_distribution_days_subtitle">Nombre de journées observées par intensité</string>
+    <string name="stats_percent_of_observed">%1$s %% des journées observées</string>
+
+    <!-- Stats : première consommation -->
+    <string name="stats_first_drink_title">Heure de première consommation</string>
+    <string name="stats_first_drink_subtitle">Un point par journée avec consommation · échelle de 0 h à 24 h</string>
+    <string name="stats_first_drink_empty">Aucune consommation dans cette période.</string>
+    <string name="stats_earliest">La plus tôt</string>
+    <string name="stats_latest">La plus tard</string>
+
+    <!-- Stats : variation -->
+    <string name="stats_daytoday_title">Consommation d’un jour à l’autre</string>
+    <string name="stats_daytoday_subtitle">Écart en standards par rapport à la veille · ligne médiane = aucun changement</string>
+    <string name="stats_daytoday_empty">Pas assez de journées consécutives observées.</string>
+    <string name="stats_legend_down">En baisse</string>
+    <string name="stats_legend_up">En hausse</string>
+
+    <!-- Stats : périodes -->
+    <string name="stats_weekly_title">Évolution par semaine</string>
+    <string name="stats_monthly_title">Évolution par mois</string>
+    <string name="stats_periods_subtitle">Standards totaux · 12 dernières périodes</string>
+    <string name="stats_periods_empty">Aucune période observée.</string>
+    <string name="stats_week_of">Semaine du %1$s</string>
+
+    <!-- Stats : distribution complète -->
+    <string name="stats_distribution_title">Distribution complète</string>
+    <string name="stats_distribution_subtitle">Par journée observée · 1 consommation standard = %1$s g d’alcool pur.</string>
+    <string name="stats_distribution_tap_hint">Touche une tuile pour l’explication de la statistique.</string>
+    <string name="stats_mean">Moyenne</string>
+    <string name="stats_median">Médiane</string>
+    <string name="stats_q1">Quartile 1</string>
+    <string name="stats_q3">Quartile 3</string>
+    <string name="stats_p90">P90</string>
+    <string name="stats_stddev">Écart-type</string>
+    <string name="stats_cv">Coeff. variation</string>
+    <string name="stats_minimum">Minimum</string>
+    <string name="stats_mean_help">Votre niveau moyen par journée observée. Elle sert à suivre l’évolution générale, mais peut être tirée vers le haut par quelques journées très élevées.</string>
+    <string name="stats_median_help">Votre journée la plus représentative : la moitié des journées est en dessous et l’autre moitié au-dessus. Utile lorsque quelques épisodes élevés déforment la moyenne.</string>
+    <string name="stats_q1_help">25 % des journées observées sont à ce niveau ou moins. Peut servir de repère réaliste pour vos journées de plus faible consommation.</string>
+    <string name="stats_q3_help">75 % des journées observées sont à ce niveau ou moins. Au-dessus, vous entrez dans le quart de vos journées les plus élevées.</string>
+    <string name="stats_p90_help">90 % des journées observées sont à ce niveau ou moins. Les valeurs supérieures correspondent à vos 10 % de journées les plus élevées et peuvent aider à repérer les épisodes exceptionnels.</string>
+    <string name="stats_stddev_help">Indique à quel point vos journées varient autour de la moyenne. Une valeur faible signifie un rythme stable; une valeur élevée indique des écarts importants d’une journée à l’autre.</string>
+    <string name="stats_cv_help">Rapporte la variabilité à votre moyenne. Pratique pour voir si votre rythme devient plus régulier même lorsque votre niveau moyen change.</string>
+    <string name="stats_minimum_help">Votre plus faible journée réellement observée. Les journées sobres explicitement consignées peuvent donc donner une valeur de zéro.</string>
+    <string name="stats_maximum_help">Votre journée observée la plus élevée. Sert à identifier l’ampleur de votre pic historique, sans en faire un record à battre.</string>
+
+    <!-- Stats : santé et sessions -->
+    <string name="stats_health_title">Données de santé</string>
+    <string name="stats_health_subtitle">Données locales Health Connect</string>
+    <string name="stats_health_empty">Aucune donnée Health Connect locale pour cette période.</string>
+    <string name="stats_health_days_with_data">Jours avec donnée</string>
+    <string name="stats_sessions_title">Sessions</string>
+    <string name="stats_sessions_subtitle">Écart de 8 h · calcul local</string>
+    <string name="health_sleep">Sommeil</string>
+    <string name="health_steps">Pas</string>
+    <string name="health_exercise">Exercice</string>
+    <string name="health_resting_heart_rate">FC repos</string>
+    <string name="health_heart_rate">FC moyenne</string>
+    <string name="health_hrv">VFC</string>
+
+    <plurals name="stats_drinks_count">
+        <item quantity="one">%1$d consommation</item>
+        <item quantity="other">%1$d consommations</item>
+    </plurals>
+    <plurals name="stats_alcohol_free_count">
+        <item quantity="one">%1$d jour sans alcool</item>
+        <item quantity="other">%1$d jours sans alcool</item>
+    </plurals>
+    <string-array name="weekday_names">
+        <item>Lundi</item><item>Mardi</item><item>Mercredi</item><item>Jeudi</item>
+        <item>Vendredi</item><item>Samedi</item><item>Dimanche</item>
+    </string-array>
+    <string-array name="weekday_initials">
+        <item>L</item><item>M</item><item>M</item><item>J</item><item>V</item><item>S</item><item>D</item>
+    </string-array>
+    <string-array name="stats_intensity_buckets">
+        <item>0 standard</item><item>≤ 1 standard</item><item>1 à 2 standards</item>
+        <item>2 à 4 standards</item><item>Plus de 4 standards</item>
+    </string-array>
 </resources>

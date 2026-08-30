@@ -25,6 +25,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringArrayResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -98,7 +101,7 @@ private fun <T> RemoteScreen(
 private fun PageHeaderLite(eyebrow: String, title: String) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
         Text(
-            eyebrow.uppercase(Locale.CANADA_FRENCH),
+            eyebrow.uppercase(Locale.getDefault()),
             style = MaterialTheme.typography.labelSmall,
             color = Pine.copy(alpha = .65f), fontWeight = FontWeight.Bold,
         )
@@ -135,33 +138,40 @@ private fun JSONObject.numOrNull(key: String): Double? =
 
 /* ---------- charts ---------- */
 
-private val SHORT_DATE = DateTimeFormatter.ofPattern("d MMM", Locale.CANADA_FRENCH)
-private val DAY_DATE = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.CANADA_FRENCH)
+/** Patterns are resolved against the app locale (Android 13+ per-app language), and cached per locale. */
+private val DATE_FORMATS = java.util.concurrent.ConcurrentHashMap<Pair<String, Locale>, DateTimeFormatter>()
+private fun dateFormat(pattern: String): DateTimeFormatter = Locale.getDefault().let { locale ->
+    DATE_FORMATS.getOrPut(pattern to locale) { DateTimeFormatter.ofPattern(pattern, locale) }
+}
+private fun shortDate() = dateFormat("d MMM")
+private fun dayDate() = dateFormat("EEEE d MMMM yyyy")
+private fun monthLabel() = dateFormat("MMM")
 
 private fun axisText(value: Double): String = when {
     value == 0.0 -> "0"
-    abs(value) >= 10 -> String.format(Locale.CANADA_FRENCH, "%.0f", value)
-    abs(value) >= 1 -> String.format(Locale.CANADA_FRENCH, "%.1f", value)
-    else -> String.format(Locale.CANADA_FRENCH, "%.2f", value)
+    abs(value) >= 10 -> String.format(Locale.getDefault(), "%.0f", value)
+    abs(value) >= 1 -> String.format(Locale.getDefault(), "%.1f", value)
+    else -> String.format(Locale.getDefault(), "%.2f", value)
 }
 
-/** Left-hand scale shared by every chart: haut / milieu / bas, aligned with the canvas gridlines. */
+private val AXIS_WIDTH = 40.dp
+
+/** Left-hand scale shared by every chart: one label per gridline, so the numbers and the grid always agree. */
 @Composable
 private fun ChartYAxis(max: Double, height: Dp, min: Double = 0.0) {
-    Column(Modifier.height(height).padding(end = 6.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.End) {
-        listOf(max, (max + min) / 2, min).forEach {
-            Text(axisText(it), style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f), maxLines = 1)
+    Column(Modifier.width(AXIS_WIDTH).height(height).padding(end = 6.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.End) {
+        (0..GRID_DIVISIONS).forEach { i ->
+            Text(axisText(max - (max - min) * i / GRID_DIVISIONS), style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f), maxLines = 1)
         }
     }
 }
 
+/** Ticks under the canvas, indented past the Y scale so they line up with the plot area. */
 @Composable
-private fun ChartXAxis(start: String, end: String) {
-    if (start.isBlank() && end.isBlank()) return
-    Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-        Text(start, style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f))
-        Spacer(Modifier.weight(1f))
-        Text(end, style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f))
+private fun ChartXAxis(labels: List<String>) {
+    if (labels.none { it.isNotBlank() }) return
+    Row(Modifier.fillMaxWidth().padding(start = AXIS_WIDTH, top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        labels.forEach { Text(it, style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .55f), maxLines = 1) }
     }
 }
 
@@ -191,14 +201,16 @@ private fun ChartSelection(label: String, value: String, detail: String? = null)
 }
 
 @Composable
-private fun ChartHint(text: String = "Touche le graphique ou fais glisser ton doigt pour lire le détail d’un point.") {
+private fun ChartHint(text: String = stringResource(R.string.chart_hint)) {
     Text(text, style = MaterialTheme.typography.labelLarge, color = Pine.copy(alpha = .5f), modifier = Modifier.padding(top = 10.dp))
 }
 
+private const val GRID_DIVISIONS = 4
+
 private fun DrawScope.gridlines() {
-    listOf(0f, .25f, .5f, .75f, 1f).forEach { f ->
-        val y = size.height * (1 - f)
-        drawLine(Pine.copy(alpha = if (f == 0f || f == 1f) .24f else .10f), Offset(0f, y), Offset(size.width, y), 1.5f)
+    (0..GRID_DIVISIONS).forEach { i ->
+        val y = size.height * i / GRID_DIVISIONS
+        drawLine(Pine.copy(alpha = if (i == 0 || i == GRID_DIVISIONS) .24f else .10f), Offset(0f, y), Offset(size.width, y), 1.5f)
     }
 }
 
@@ -242,21 +254,24 @@ private fun MetricGrid(items: List<Triple<String, String, String?>>) {
     }
 }
 
-/** Labelled horizontal bars — far more legible than 5-7 hairline vertical bars on a phone. */
+private data class CatBar(val label: String, val value: Double, val color: Color, val note: String? = null)
+
+/** Labelled horizontal bars — far more legible than a handful of hairline vertical bars on a phone. */
 @Composable
-private fun CategoryBars(rows: List<Triple<String, Double, Color>>, unit: String, digits: Int = 1) {
-    val max = rows.maxOfOrNull { it.second }?.coerceAtLeast(.01) ?: .01
+private fun CategoryBars(rows: List<CatBar>, unit: String, digits: Int = 1) {
+    val max = rows.maxOfOrNull { it.value }?.coerceAtLeast(.01) ?: .01
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        rows.forEach { (label, value, color) ->
+        rows.forEach { row ->
             Column {
                 Row(Modifier.fillMaxWidth()) {
-                    Text(label, Modifier.weight(1f).padding(end = 10.dp), style = MaterialTheme.typography.bodyLarge, color = Pine.copy(alpha = .85f))
-                    Text("${fmt(value, digits)}$unit", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Pine)
+                    Text(row.label, Modifier.weight(1f).padding(end = 10.dp), style = MaterialTheme.typography.bodyLarge, color = Pine.copy(alpha = .85f))
+                    Text("${fmt(row.value, digits)}$unit", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Pine)
                 }
                 Spacer(Modifier.height(5.dp))
                 Box(Modifier.fillMaxWidth().height(14.dp).background(Mint.copy(alpha = .55f), RoundedCornerShape(7.dp))) {
-                    Box(Modifier.fillMaxWidth((value / max).toFloat().coerceIn(.001f, 1f)).height(14.dp).background(color, RoundedCornerShape(7.dp)))
+                    Box(Modifier.fillMaxWidth((row.value / max).toFloat().coerceIn(.001f, 1f)).height(14.dp).background(row.color, RoundedCornerShape(7.dp)))
                 }
+                if (row.note != null) Text(row.note, style = MaterialTheme.typography.bodyMedium, color = Pine.copy(alpha = .6f), modifier = Modifier.padding(top = 4.dp))
             }
         }
     }
@@ -265,8 +280,8 @@ private fun CategoryBars(rows: List<Triple<String, Double, Color>>, unit: String
 @Composable
 private fun MetricChips(metric: String, onSelect: (String) -> Unit) {
     Row(Modifier.padding(bottom = 6.dp)) {
-        listOf("standards" to "Standards", "grams" to "Grammes").forEach { (value, label) ->
-            FilterChip(metric == value, { onSelect(value) }, { Text(label) }, Modifier.padding(end = 8.dp))
+        listOf("standards" to R.string.metric_standards, "grams" to R.string.metric_grams).forEach { (value, label) ->
+            FilterChip(metric == value, { onSelect(value) }, { Text(stringResource(label)) }, Modifier.padding(end = 8.dp))
         }
     }
 }
@@ -275,7 +290,7 @@ private fun MetricChips(metric: String, onSelect: (String) -> Unit) {
 private fun BarChart(
     values: List<Double>, colors: List<Color>, threshold: Double? = null, modifier: Modifier = Modifier,
     labels: List<String> = emptyList(), unit: String = "", height: Dp = 180.dp, digits: Int = 2,
-    xStart: String = "", xEnd: String = "",
+    xLabels: List<String> = emptyList(),
 ) {
     val max = (values.maxOrNull() ?: 0.0).coerceAtLeast(threshold ?: 0.0).coerceAtLeast(0.01)
     var selected by remember(values) { mutableStateOf<Int?>(null) }
@@ -304,9 +319,9 @@ private fun BarChart(
                 }
             }
         }
-        ChartXAxis(xStart, xEnd)
+        ChartXAxis(xLabels)
         val i = selected
-        if (i != null) ChartSelection(labels.getOrNull(i) ?: "Valeur ${i + 1}", "${fmt(values[i], digits)}$unit") else ChartHint()
+        if (i != null) ChartSelection(labels.getOrNull(i) ?: stringResource(R.string.chart_value, i + 1), valued(values[i], digits, unit)) else ChartHint()
     }
 }
 
@@ -315,8 +330,9 @@ private fun BarChart(
 private fun ComboChart(
     bars: List<Double>, lines: List<Pair<Color, List<Double?>>>, threshold: Double? = null, modifier: Modifier = Modifier,
     labels: List<String> = emptyList(), unit: String = "", lineNames: List<String> = listOf("7 jours", "30 jours", "90 jours"),
-    height: Dp = 230.dp, xStart: String = "", xEnd: String = "", thresholdName: String? = null, barName: String = "Par jour",
+    height: Dp = 230.dp, xLabels: List<String> = emptyList(), thresholdName: String? = null, barName: String = stringResource(R.string.chart_series_per_day),
 ) {
+    val movingNames = lineNames.map { stringResource(R.string.chart_moving_average, it) }
     val allLine = lines.flatMap { it.second }.filterNotNull()
     val max = (bars.maxOrNull() ?: 0.0)
         .coerceAtLeast(allLine.maxOrNull() ?: 0.0)
@@ -360,20 +376,21 @@ private fun ComboChart(
                 }
             }
         }
-        ChartXAxis(xStart, xEnd)
+        ChartXAxis(xLabels)
         ChartLegend(
             buildList {
                 add(Pine.copy(alpha = .22f) to barName)
-                lines.forEachIndexed { n, pair -> add(pair.first to "Moyenne mobile ${lineNames.getOrNull(n) ?: ""}".trim()) }
+                lines.forEachIndexed { n, pair -> add(pair.first to movingNames.getOrElse(n) { "" }) }
                 if (threshold != null && thresholdName != null) add(Color(0xFFD9534F) to thresholdName)
             },
         )
         val i = selected
         if (i != null) ChartSelection(
-            labels.getOrNull(i) ?: "Point ${i + 1}",
-            "Journée : ${fmt(bars[i], 2)}$unit",
-            lines.mapIndexedNotNull { n, pair -> pair.second.getOrNull(i)?.let { "Moy. ${lineNames.getOrNull(n) ?: "mobile"} : ${fmt(it, 2)}$unit" } }
-                .joinToString(" · ").takeIf { it.isNotBlank() },
+            labels.getOrNull(i) ?: stringResource(R.string.chart_point, i + 1),
+            stringResource(R.string.chart_day_value, valued(bars[i], 2, unit)),
+            lines.mapIndexedNotNull { n, pair ->
+                pair.second.getOrNull(i)?.let { stringResource(R.string.chart_moving_average_short, lineNames.getOrElse(n) { "" }, valued(it, 2, unit)) }
+            }.joinToString(" · ").takeIf { it.isNotBlank() },
         ) else ChartHint()
     }
 }
@@ -381,7 +398,7 @@ private fun ComboChart(
 @Composable
 private fun LineChart(
     values: List<Double?>, modifier: Modifier = Modifier, color: Color = Pine, labels: List<String> = emptyList(),
-    unit: String = "", height: Dp = 190.dp, xStart: String = "", xEnd: String = "",
+    unit: String = "", height: Dp = 190.dp, xLabels: List<String> = emptyList(),
 ) {
     val present = values.filterNotNull()
     val min = present.minOrNull() ?: 0.0
@@ -415,21 +432,218 @@ private fun LineChart(
                 }
             }
         }
-        ChartXAxis(xStart, xEnd)
+        ChartXAxis(xLabels)
         val i = selected
-        if (i != null) ChartSelection(labels.getOrNull(i) ?: "Point ${i + 1}", values[i]?.let { "${fmt(it, 2)}$unit" } ?: "Aucune donnée") else ChartHint()
+        if (i != null) ChartSelection(labels.getOrNull(i) ?: stringResource(R.string.chart_point, i + 1), values[i]?.let { valued(it, 2, unit) } ?: stringResource(R.string.chart_no_data)) else ChartHint()
+    }
+}
+
+/** Evenly spaced date ticks for a daily series, so the X axis says more than just its two ends. */
+private fun dateTicks(dates: List<LocalDate>, count: Int = 4): List<String> {
+    if (dates.isEmpty()) return emptyList()
+    if (dates.size <= count) return dates.map { it.format(shortDate()) }
+    return (0 until count).map { dates[(it * (dates.size - 1)) / (count - 1)].format(shortDate()) }
+}
+
+/** Dots on a fixed scale — for values that are positions (a clock hour), not quantities to compare against zero. */
+@Composable
+private fun ScatterChart(
+    values: List<Double>, max: Double, labels: List<String> = emptyList(), modifier: Modifier = Modifier,
+    color: Color = Pine, height: Dp = 190.dp, xLabels: List<String> = emptyList(),
+    valueText: (Double) -> String = { fmt(it, 2) },
+) {
+    var selected by remember(values) { mutableStateOf<Int?>(null) }
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            ChartYAxis(max, height)
+            Canvas(
+                modifier.weight(1f).height(height)
+                    .pointerInput(values) { detectTapGestures { tap -> if (values.isNotEmpty()) selected = ((tap.x / size.width) * values.size).toInt().coerceIn(0, values.lastIndex) } }
+                    .pointerInput(values) { detectHorizontalDragGestures { change, _ -> if (values.isNotEmpty()) selected = ((change.position.x / size.width) * values.size).toInt().coerceIn(0, values.lastIndex) } },
+            ) {
+                gridlines()
+                if (values.isEmpty()) return@Canvas
+                val slot = size.width / values.size
+                fun center(i: Int) = (i + .5f) * slot
+                fun y(v: Double) = (size.height - (v / max * size.height)).toFloat()
+                val radius = (slot * .38f).coerceIn(3.5f, 9f)
+                values.forEachIndexed { i, v -> drawCircle(color.copy(alpha = .75f), radius, Offset(center(i), y(v))) }
+                selected?.let { i ->
+                    val x = center(i)
+                    drawLine(Amber, Offset(x, 0f), Offset(x, size.height), 3f)
+                    drawCircle(Color.White, radius + 4f, Offset(x, y(values[i]))); drawCircle(Amber, radius + 1f, Offset(x, y(values[i])))
+                }
+            }
+        }
+        ChartXAxis(xLabels)
+        val i = selected
+        if (i != null) ChartSelection(labels.getOrNull(i) ?: stringResource(R.string.chart_point, i + 1), valueText(values[i])) else ChartHint()
+    }
+}
+
+/** Signed bars around a zero baseline — a rise and a drop must not look alike. */
+@Composable
+private fun DivergingBars(
+    values: List<Double?>, labels: List<String> = emptyList(), unit: String = "", modifier: Modifier = Modifier,
+    height: Dp = 190.dp, xLabels: List<String> = emptyList(), upColor: Color = Color(0xFFD9534F), downColor: Color = Pine,
+) {
+    val bound = (values.filterNotNull().maxOfOrNull { abs(it) } ?: 0.0).coerceAtLeast(0.01)
+    var selected by remember(values) { mutableStateOf<Int?>(null) }
+    Column {
+        Row(Modifier.fillMaxWidth()) {
+            ChartYAxis(bound, height, -bound)
+            Canvas(
+                modifier.weight(1f).height(height)
+                    .pointerInput(values) { detectTapGestures { tap -> if (values.isNotEmpty()) selected = ((tap.x / size.width) * values.size).toInt().coerceIn(0, values.lastIndex) } }
+                    .pointerInput(values) { detectHorizontalDragGestures { change, _ -> if (values.isNotEmpty()) selected = ((change.position.x / size.width) * values.size).toInt().coerceIn(0, values.lastIndex) } },
+            ) {
+                gridlines()
+                if (values.isEmpty()) return@Canvas
+                val zero = size.height / 2
+                val slot = size.width / values.size
+                val gap = if (values.size > 40) 1f else 3f
+                val bw = (slot - gap).coerceAtLeast(1.5f)
+                drawLine(Pine.copy(alpha = .45f), Offset(0f, zero), Offset(size.width, zero), 2.5f)
+                values.forEachIndexed { i, v ->
+                    if (v == null) return@forEachIndexed
+                    val h = (abs(v) / bound * (size.height / 2)).toFloat().coerceAtLeast(2f)
+                    val top = if (v >= 0) zero - h else zero
+                    drawRect(if (v >= 0) upColor.copy(alpha = .8f) else downColor.copy(alpha = .8f), Offset(i * slot + gap / 2, top), Size(bw, h))
+                }
+                selected?.let { i ->
+                    drawRect(Amber.copy(alpha = .22f), Offset(i * slot, 0f), Size(slot, size.height))
+                    val x = (i + .5f) * slot
+                    drawLine(Amber, Offset(x, 0f), Offset(x, size.height), 3f)
+                }
+            }
+        }
+        ChartXAxis(xLabels)
+        val i = selected
+        if (i != null) ChartSelection(
+            labels.getOrNull(i) ?: stringResource(R.string.chart_point, i + 1),
+            values[i]?.let { stringResource(R.string.chart_signed_value, if (it > 0) "+" else "", valued(it, 2, unit)) } ?: stringResource(R.string.chart_no_data),
+            values[i]?.let { stringResource(if (it > 0) R.string.chart_up_from_previous else if (it < 0) R.string.chart_down_from_previous else R.string.chart_same_as_previous) },
+        ) else ChartHint()
+    }
+}
+
+/** GitHub-style calendar: one column per week, one row per weekday, so a date is findable at a glance. */
+@Composable
+private fun CalendarHeatmap(days: List<LocalStatDay>, selected: LocalStatDay?, onSelect: (LocalStatDay) -> Unit) {
+    if (days.isEmpty()) return
+    val cell = 18.dp; val gap = 3.dp
+    val byDate = remember(days) { days.associateBy { it.date } }
+    val last = days.last().date
+    val weeks = remember(days) {
+        val gridStart = days.first().date.minusDays((days.first().date.dayOfWeek.value - 1).toLong())
+        generateSequence(gridStart) { if (it.plusWeeks(1) <= last) it.plusWeeks(1) else null }.toList()
+    }
+    val max = days.maxOfOrNull { it.grams }?.coerceAtLeast(.01) ?: .01
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        Column(verticalArrangement = Arrangement.spacedBy(gap), modifier = Modifier.padding(end = 6.dp)) {
+            Spacer(Modifier.height(cell))
+            stringArrayResource(R.array.weekday_initials).forEach {
+                Box(Modifier.height(cell), contentAlignment = Alignment.CenterStart) {
+                    Text(it, style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .5f))
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+            weeks.forEachIndexed { w, weekStart ->
+                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                    // A month name sits above the week that opens it.
+                    val newMonth = (0..6).map { weekStart.plusDays(it.toLong()) }.any { it.dayOfMonth == 1 } || w == 0
+                    Box(Modifier.height(cell), contentAlignment = Alignment.CenterStart) {
+                        if (newMonth) Text(weekStart.plusDays(6).format(monthLabel()), style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .6f), maxLines = 1)
+                    }
+                    (0..6).forEach { d ->
+                        val date = weekStart.plusDays(d.toLong())
+                        val day = byDate[date]
+                        Box(
+                            Modifier.size(cell).background(
+                                when {
+                                    day == null -> Color.Transparent
+                                    day == selected -> Amber
+                                    !day.observed -> Color(0xFFE2E5E3)
+                                    day.sober -> Mint.copy(alpha = .85f)
+                                    else -> Pine.copy(alpha = (.25 + .75 * day.grams / max).toFloat())
+                                },
+                                RoundedCornerShape(4.dp),
+                            ).pointerInput(day) { if (day != null) detectTapGestures { onSelect(day) } },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Weekday x hour grid, mirroring the web `weekday_hour` chart: where in the week the drinking actually happens. */
+@Composable
+private fun WeekdayHourHeatmap(days: List<LocalStatDay>) {
+    val grid = remember(days) {
+        val cells = Array(7) { DoubleArray(24) }
+        days.forEach { day ->
+            day.drinks.forEach { drink ->
+                runCatching { parseDrinkTime(drink.startedAt).hour }.getOrNull()?.let { hour ->
+                    cells[day.date.dayOfWeek.value - 1][hour] += alcoholGrams(drink.volumeMl, drink.abvPercent, drink.quantity)
+                }
+            }
+        }
+        cells
+    }
+    val max = grid.maxOf { row -> row.maxOrNull() ?: 0.0 }.coerceAtLeast(.01)
+    var selected by remember(days) { mutableStateOf<Pair<Int, Int>?>(null) }
+    val names = stringArrayResource(R.array.weekday_names)
+    Column {
+        Row(Modifier.fillMaxWidth().padding(start = 30.dp, bottom = 3.dp)) {
+            (0..23).forEach { hour ->
+                Box(Modifier.weight(1f)) {
+                    if (hour % 6 == 0) Text(hour.toString().padStart(2, '0'), style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .5f), maxLines = 1)
+                }
+            }
+        }
+        (0..6).forEach { weekday ->
+            Row(Modifier.fillMaxWidth().padding(bottom = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(names[weekday].take(3), Modifier.width(30.dp), style = MaterialTheme.typography.labelMedium, color = Pine.copy(alpha = .6f), maxLines = 1)
+                (0..23).forEach { hour ->
+                    val value = grid[weekday][hour]
+                    Box(
+                        // Tap target first, gutter second: the cells are narrow enough already.
+                        Modifier.weight(1f).height(22.dp).pointerInput(weekday to hour) { detectTapGestures { selected = weekday to hour } }
+                            .padding(horizontal = 1.dp).background(
+                                if (selected == weekday to hour) Amber else if (value <= 0) Mint.copy(alpha = .35f) else Pine.copy(alpha = (.2 + .8 * value / max).toFloat()),
+                                RoundedCornerShape(3.dp),
+                            ),
+                    )
+                }
+            }
+        }
+        val cell = selected
+        if (cell != null) ChartSelection(
+            stringResource(R.string.chart_slot_label, names[cell.first], cell.second.toString().padStart(2, '0')),
+            stringResource(R.string.chart_pure_alcohol_grams, fmt(grid[cell.first][cell.second], 1)),
+            stringResource(R.string.chart_period_total),
+        ) else ChartHint(stringResource(R.string.chart_hint_slot_cell))
     }
 }
 
 private fun fmt(value: Double?, digits: Int = 1): String =
-    if (value == null) "—" else String.format(Locale.CANADA_FRENCH, "%.${digits}f", value)
+    if (value == null) "—" else String.format(Locale.getDefault(), "%.${digits}f", value)
+
+/** Number plus unit, with no dangling space when a chart carries no unit. */
+private fun valued(value: Double?, digits: Int, unit: String): String =
+    if (unit.isBlank()) fmt(value, digits) else "${fmt(value, digits)} $unit"
 
 /* ---------- Stats ---------- */
 
 private val HEALTH_LABELS = mapOf(
-    "sleep" to "Sommeil", "steps" to "Pas", "exercise" to "Exercice",
-    "resting_heart_rate" to "FC repos", "heart_rate" to "FC moyenne", "hrv_rmssd" to "VFC",
+    "sleep" to R.string.health_sleep, "steps" to R.string.health_steps, "exercise" to R.string.health_exercise,
+    "resting_heart_rate" to R.string.health_resting_heart_rate, "heart_rate" to R.string.health_heart_rate,
+    "hrv_rmssd" to R.string.health_hrv,
 )
+
+@Composable private fun healthLabel(type: String): String = HEALTH_LABELS[type]?.let { stringResource(it) } ?: type
 
 @Composable
 fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<TrackedDayEntity>, healthRows:List<HealthAggregateEntity>,settings:LocalSettings) {
@@ -440,30 +654,32 @@ fun StatsScreen(context: Context, drinks:List<DrinkEntity>, trackedDays:List<Tra
         val rows=drinks.filter { runCatching{trackedDay(it.startedAt,settings.dayStartHour)==day}.getOrDefault(false) };val sober=trackedDays.any{it.day==day.toString()&&it.sober};LocalStatDay(day,rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)},rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,settings.standardDrinkGrams)},rows,rows.isNotEmpty()||sober,sober)
     }.toList()};val observed=days.filter{it.observed};val drinking=days.filter{it.grams>0};val totalStd=observed.sumOf{it.standards};val totalGrams=observed.sumOf{it.grams}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        PageHeaderLite("Analyse", "Stats")
+        PageHeaderLite(stringResource(R.string.stats_eyebrow), stringResource(R.string.nav_stats))
         StatsPeriodSelector(start, end, custom, onPreset = { days -> start=LocalDate.now().minusDays(days-1L);end=LocalDate.now();custom=false }, onCustom = { a,b -> start=a;end=b;custom=true })
-        SectionCard("Période observée", "Du ${start.format(STAT_DATE)} au ${end.format(STAT_DATE)}") {
+        SectionCard(stringResource(R.string.stats_period_title), stringResource(R.string.stats_period_range, start.format(statDate()), end.format(statDate()))) {
+            val std=stringResource(R.string.unit_standards)
             MetricGrid(listOf(
-                Triple("Jours observés", observed.size.toString(), null),
-                Triple("Jours sans alcool", "${observed.count{it.sober}} · ${fmt(observed.count{it.sober}*100.0/observed.size.coerceAtLeast(1),0)} %", null),
-                Triple("Jours sans donnée", days.count{!it.observed}.toString(), null),
-                Triple("Total standards", fmt(totalStd,1), null),
-                Triple("Moyenne / jour observé", "${fmt(totalStd/observed.size.coerceAtLeast(1),2)} std", null),
-                Triple("Maximum", "${fmt(observed.maxOfOrNull{it.standards},2)} std", "Journée observée la plus élevée : ${fmt(observed.maxOfOrNull{it.grams},0)} g d’alcool pur."),
+                Triple(stringResource(R.string.stats_observed_days), observed.size.toString(), null),
+                Triple(stringResource(R.string.stats_alcohol_free_days), stringResource(R.string.stats_count_with_percent,observed.count{it.sober},fmt(observed.count{it.sober}*100.0/observed.size.coerceAtLeast(1),0)), null),
+                Triple(stringResource(R.string.stats_days_without_data), days.count{!it.observed}.toString(), null),
+                Triple(stringResource(R.string.stats_total_standards), fmt(totalStd,1), null),
+                Triple(stringResource(R.string.stats_average_per_observed_day), valued(totalStd/observed.size.coerceAtLeast(1),2,std), null),
+                Triple(stringResource(R.string.stats_maximum), valued(observed.maxOfOrNull{it.standards},2,std), stringResource(R.string.stats_highest_day_help,fmt(observed.maxOfOrNull{it.grams},0))),
             ))
             Spacer(Modifier.height(10.dp))
-            Text("Total : ${fmt(totalGrams,0)} g d’alcool pur", style = MaterialTheme.typography.bodyMedium, color = Pine.copy(alpha=.7f))
+            Text(stringResource(R.string.stats_total_pure_alcohol,fmt(totalGrams,0)), style = MaterialTheme.typography.bodyMedium, color = Pine.copy(alpha=.7f))
         }
         LocalTrendSection(days)
         DistributionSummary(observed,settings.standardDrinkGrams)
         HeatmapSection(days)
         DistributionChart(days)
         WeekdayChart(days)
+        WeekdayHourSection(days)
         HourChart(drinking.flatMap{it.drinks})
         FirstDrinkChart(drinking)
         DayToDayChart(days)
-        PeriodBars("Évolution par semaine",aggregateLocal(days,false))
-        PeriodBars("Évolution par mois",aggregateLocal(days,true),monthly=true)
+        PeriodBars(stringResource(R.string.stats_weekly_title),aggregateLocal(days,false))
+        PeriodBars(stringResource(R.string.stats_monthly_title),aggregateLocal(days,true),monthly=true)
         LocalHealthSection(healthRows,start,end)
         SessionsSection(drinking.flatMap{it.drinks},settings.standardDrinkGrams)
         Spacer(Modifier.height(28.dp))
@@ -479,120 +695,131 @@ private data class LocalPeriod(val label:String,val standards:Double,val alcohol
     val rows=remember(days){days.dropWhile{!it.observed}}
     val daily=rows.map{if(metric=="grams")it.grams else it.standards}
     fun moving(n:Int)=rows.indices.map{i->rows.subList(maxOf(0,i-n+1),i+1).filter{it.observed}.map{if(metric=="grams")it.grams else it.standards}.takeIf{it.isNotEmpty()}?.average()}
-    SectionCard("Tendance lissée","Consommation quotidienne et moyennes mobiles 7 / 30 / 90 jours"){
+    SectionCard(stringResource(R.string.stats_trend_title),stringResource(R.string.stats_trend_subtitle)){
         MetricChips(metric){metric=it}
-        if(rows.isEmpty()){Text("Aucune journée avec données dans cette période.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
+        if(rows.isEmpty()){Text(stringResource(R.string.stats_trend_empty),style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
         ComboChart(daily,listOf(Pine to moving(7),Amber to moving(30),Pine.copy(alpha=.45f) to moving(90)),
             threshold=if(metric=="standards")3.0 else null,
-            labels=rows.map{it.date.format(DAY_DATE)},unit=if(metric=="grams")" g" else " std",
-            xStart=rows.first().date.format(SHORT_DATE),xEnd=rows.last().date.format(SHORT_DATE),
-            thresholdName="Seuil 3 standards",barName=if(metric=="grams")"Grammes par jour" else "Standards par jour")
+            labels=rows.map{it.date.format(dayDate())},unit=stringResource(if(metric=="grams")R.string.unit_grams else R.string.unit_standards),
+            lineNames=listOf(stringResource(R.string.stats_window_7),stringResource(R.string.stats_window_30),stringResource(R.string.stats_window_90)),
+            xLabels=dateTicks(rows.map{it.date}),
+            thresholdName=stringResource(R.string.stats_trend_threshold),
+            barName=stringResource(if(metric=="grams")R.string.stats_trend_bars_grams else R.string.stats_trend_bars_standards))
         Spacer(Modifier.height(8.dp))
-        Text("Départ au ${rows.first().date.format(STAT_DATE)}, première journée avec données de la période.",style=MaterialTheme.typography.bodyMedium,color=Pine.copy(alpha=.65f))
+        Text(stringResource(R.string.stats_trend_start,rows.first().date.format(statDate())),style=MaterialTheme.typography.bodyMedium,color=Pine.copy(alpha=.65f))
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable private fun HeatmapSection(days:List<LocalStatDay>){val max=days.maxOfOrNull{it.grams}?.coerceAtLeast(.01)?:.01;var selected by remember(days){mutableStateOf<LocalStatDay?>(null)}
-    SectionCard("Calendrier de consommation","Intensité quotidienne · touche une journée"){
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){days.forEach{d->Box(Modifier.size(19.dp).background(if(selected==d)Amber else if(!d.observed)Color(0xFFE2E5E3) else if(d.sober)Mint.copy(alpha=.85f)else Pine.copy(alpha=(.25+.75*d.grams/max).toFloat()),RoundedCornerShape(4.dp)).pointerInput(d){detectTapGestures{selected=d}})}}
+@Composable private fun HeatmapSection(days:List<LocalStatDay>){var selected by remember(days){mutableStateOf<LocalStatDay?>(null)}
+    SectionCard(stringResource(R.string.stats_calendar_title),stringResource(R.string.stats_calendar_subtitle)){
+        CalendarHeatmap(days,selected){selected=it}
         Spacer(Modifier.height(10.dp))
-        ChartLegend(listOf(Color(0xFFE2E5E3) to "Sans donnée",Mint.copy(alpha=.85f) to "Journée sobre",Pine.copy(alpha=.45f) to "Faible",Pine to "Élevée"))
-        Text("${days.firstOrNull()?.date?.format(STAT_DATE)?:"—"} — ${days.lastOrNull()?.date?.format(STAT_DATE)?:"—"}",style=MaterialTheme.typography.bodyMedium,color=Pine.copy(alpha=.6f),modifier=Modifier.padding(top=8.dp))
+        ChartLegend(listOf(Color(0xFFE2E5E3) to stringResource(R.string.stats_legend_no_data),Mint.copy(alpha=.85f) to stringResource(R.string.stats_legend_sober),Pine.copy(alpha=.45f) to stringResource(R.string.stats_legend_low),Pine to stringResource(R.string.stats_legend_high)))
         val day=selected
-        if(day!=null)ChartSelection(day.date.format(DAY_DATE),if(!day.observed)"Aucune donnée" else if(day.sober)"Journée sobre · 0 g" else "${fmt(day.grams,1)} g · ${fmt(day.standards,2)} std",if(day.observed&&!day.sober)"${day.drinks.sumOf{d->d.quantity}} consommation${if(day.drinks.sumOf{d->d.quantity}>1)"s"else""}" else null)
-        else ChartHint("Touche une case pour voir le détail de la journée.")
+        if(day!=null)ChartSelection(day.date.format(dayDate()),
+            if(!day.observed)stringResource(R.string.chart_no_data) else if(day.sober)stringResource(R.string.stats_sober_day_value) else stringResource(R.string.stats_day_value,fmt(day.grams,1),fmt(day.standards,2)),
+            if(day.observed&&!day.sober)pluralStringResource(R.plurals.stats_drinks_count,day.drinks.sumOf{d->d.quantity},day.drinks.sumOf{d->d.quantity}) else null)
+        else ChartHint(stringResource(R.string.chart_hint_day_cell))
     }
+}
+
+@Composable private fun WeekdayHourSection(days:List<LocalStatDay>){
+    SectionCard(stringResource(R.string.stats_weekhour_title),stringResource(R.string.stats_weekhour_subtitle)){WeekdayHourHeatmap(days)}
 }
 
 private fun aggregateLocal(days:List<LocalStatDay>,monthly:Boolean):List<LocalPeriod> = days.groupBy{if(monthly)it.date.withDayOfMonth(1) else it.date.minusDays(it.date.dayOfWeek.value-1L)}.toSortedMap().map{(date,rows)->LocalPeriod(date.toString(),rows.filter{it.observed}.sumOf{it.standards},rows.count{it.sober})}.takeLast(12)
 
-private fun periodLabel(label:String,monthly:Boolean):String = runCatching{LocalDate.parse(label).format(if(monthly)DateTimeFormatter.ofPattern("MMMM yyyy",Locale.CANADA_FRENCH) else SHORT_DATE)}.getOrDefault(label)
+private fun clockText(hours: Double): String {
+    val minutes = (hours * 60).roundToInt().mod(24 * 60)
+    return "${(minutes / 60).toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}"
+}
 
-@Composable private fun PeriodBars(title:String,rows:List<LocalPeriod>,monthly:Boolean=false){SectionCard(title,"Standards totaux · 12 dernières périodes"){
-    BarChart(rows.map{it.standards},rows.map{Pine},labels=rows.map{if(monthly)periodLabel(it.label,true) else "Semaine du ${periodLabel(it.label,false)}"},unit=" std",digits=1,height=170.dp,xStart=rows.firstOrNull()?.let{periodLabel(it.label,monthly)}?:"",xEnd=rows.lastOrNull()?.let{periodLabel(it.label,monthly)}?:"")
-    Spacer(Modifier.height(6.dp))
-    rows.takeLast(if(monthly)12 else 6).reversed().forEach{StatRow(if(monthly)periodLabel(it.label,true) else periodLabel(it.label,false),"${fmt(it.standards,1)} std · ${it.alcoholFree} j sobres")}
+private fun periodLabel(label:String,monthly:Boolean):String = runCatching{LocalDate.parse(label).format(if(monthly)dateFormat("MMMM yyyy") else shortDate())}.getOrDefault(label)
+
+@Composable private fun PeriodBars(title:String,rows:List<LocalPeriod>,monthly:Boolean=false){SectionCard(title,stringResource(R.string.stats_periods_subtitle)){
+    if(rows.isEmpty()){Text(stringResource(R.string.stats_periods_empty),style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
+    val peak=rows.maxOf{it.standards}
+    CategoryBars(rows.reversed().map{row->CatBar(if(monthly)periodLabel(row.label,true) else stringResource(R.string.stats_week_of,periodLabel(row.label,false)),row.standards,if(row.standards>=peak&&peak>0)Amber else Pine,pluralStringResource(R.plurals.stats_alcohol_free_count,row.alcoholFree,row.alcoholFree))},stringResource(R.string.unit_standards),1)
 }}
 
 @Composable private fun SessionsSection(drinks:List<DrinkEntity>,standardGrams:Double=CANADIAN_STANDARD_GRAMS){val sorted=drinks.sortedBy{it.startedAt};val sessions=mutableListOf<MutableList<DrinkEntity>>();sorted.forEach{d->val at=runCatching{parseDrinkTime(d.startedAt)}.getOrNull();val last=sessions.lastOrNull()?.lastOrNull()?.let{runCatching{parseDrinkTime(it.startedAt).plusMinutes(it.durationMinutes.toLong())}.getOrNull()};if(last==null||at==null||java.time.Duration.between(last,at).toHours()>=8)sessions.add(mutableListOf(d))else sessions.last().add(d)}
-    SectionCard("Sessions","Écart de 8 h · calcul local") { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,standardGrams)};StatRow(runCatching{LocalDate.parse(rows.first().startedAt.take(10)).format(STAT_DATE)}.getOrDefault(rows.first().startedAt.take(10)),"${fmt(std,2)} std · ${rows.sumOf{it.quantity}} consommation${if(rows.sumOf{it.quantity}>1)"s"else""}") } }
+    val unit=stringResource(R.string.unit_standards)
+    SectionCard(stringResource(R.string.stats_sessions_title),stringResource(R.string.stats_sessions_subtitle)) { sessions.takeLast(8).reversed().forEach { rows -> val std=rows.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,standardGrams)};val count=rows.sumOf{it.quantity};StatRow(runCatching{LocalDate.parse(rows.first().startedAt.take(10)).format(statDate())}.getOrDefault(rows.first().startedAt.take(10)),"${valued(std,2,unit)} · ${pluralStringResource(R.plurals.stats_drinks_count,count,count)}") } }
 }
 
-@Composable private fun WeekdayChart(days:List<LocalStatDay>){val labels=listOf("Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche");val values=(1..7).map{w->days.filter{it.date.dayOfWeek.value==w}.sumOf{it.grams}}
-    SectionCard("Grammes par jour de semaine","Somme cumulée sur la période"){CategoryBars(labels.mapIndexed{i,l->Triple(l,values[i],if(values[i]>=(values.maxOrNull()?:0.0)&&values[i]>0)Amber else Pine)}," g",0)}}
+@Composable private fun WeekdayChart(days:List<LocalStatDay>){val labels=stringArrayResource(R.array.weekday_names);val values=(1..7).map{w->days.filter{it.date.dayOfWeek.value==w}.sumOf{it.grams}}
+    SectionCard(stringResource(R.string.stats_weekday_title),stringResource(R.string.stats_weekday_subtitle)){CategoryBars(labels.mapIndexed{i,l->CatBar(l,values[i],if(values[i]>=(values.maxOrNull()?:0.0)&&values[i]>0)Amber else Pine)},stringResource(R.string.unit_grams),0)}}
 
 @Composable private fun HourChart(drinks:List<DrinkEntity>){val values=(0..23).map{hour->drinks.filter{runCatching{parseDrinkTime(it.startedAt).hour==hour}.getOrDefault(false)}.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}};val groups=drinks.groupBy{it.startedAt.take(10)}
     fun decimal(t:OffsetDateTime)=t.hour+t.minute/60.0
     val first=groups.values.mapNotNull{rows->rows.mapNotNull{runCatching{parseDrinkTime(it.startedAt)}.getOrNull()}.minOrNull()?.let(::decimal)}.averageOrNull()
     val last=groups.values.mapNotNull{rows->rows.mapNotNull{d->runCatching{parseDrinkTime(d.startedAt).plusMinutes(d.durationMinutes.toLong())}.getOrNull()}.maxOrNull()?.let(::decimal)}.averageOrNull()
-    fun clock(v:Double?)=v?.let{val mins=(it*60).roundToInt().mod(24*60);"${(mins/60).toString().padStart(2,'0')}:${(mins%60).toString().padStart(2,'0')}"}?:"—"
-    SectionCard("Par heure de début","Hauteur = grammes d’alcool pur · axe horizontal = heure de la journée"){
-        BarChart(values,values.map{if(it>0)Pine else Mint},labels=(0..23).map{"${it.toString().padStart(2,'0')} h — ${(it+1).mod(24).toString().padStart(2,'0')} h"},unit=" g",digits=1,height=170.dp,xStart="00 h",xEnd="23 h")
+    SectionCard(stringResource(R.string.stats_hour_title),stringResource(R.string.stats_hour_subtitle)){
+        val slots=(0..23).map{stringResource(R.string.stats_hour_slot,it.toString().padStart(2,'0'),(it+1).mod(24).toString().padStart(2,'0'))}
+        BarChart(values,values.map{if(it>0)Pine else Mint},labels=slots,unit=stringResource(R.string.unit_grams),digits=1,height=170.dp,
+            xLabels=listOf(stringResource(R.string.stats_hour_axis_00),stringResource(R.string.stats_hour_axis_06),stringResource(R.string.stats_hour_axis_12),stringResource(R.string.stats_hour_axis_18),stringResource(R.string.stats_hour_axis_23)))
         Spacer(Modifier.height(8.dp))
-        MetricGrid(listOf(Triple("Première consommation",clock(first),"Heure moyenne de la première consommation d’une journée."),Triple("Dernière consommation",clock(last),"Heure moyenne de fin de la dernière consommation d’une journée.")))
+        MetricGrid(listOf(
+            Triple(stringResource(R.string.stats_first_drink_metric),first?.let(::clockText)?:"—",stringResource(R.string.stats_first_drink_metric_help)),
+            Triple(stringResource(R.string.stats_last_drink_metric),last?.let(::clockText)?:"—",stringResource(R.string.stats_last_drink_metric_help)),
+        ))
     }}
 
-@Composable private fun DistributionChart(days:List<LocalStatDay>){val observed=days.filter{it.observed};val labels=listOf("0 standard","≤ 1 standard","1 à 2 standards","2 à 4 standards","Plus de 4 standards");val values=listOf(observed.count{it.sober},observed.count{it.standards in .000001..1.0},observed.count{it.standards>1&&it.standards<=2},observed.count{it.standards>2&&it.standards<=4},observed.count{it.standards>4}).map{it.toDouble()}
+@Composable private fun DistributionChart(days:List<LocalStatDay>){val observed=days.filter{it.observed};val labels=stringArrayResource(R.array.stats_intensity_buckets);val values=listOf(observed.count{it.sober},observed.count{it.standards in .000001..1.0},observed.count{it.standards>1&&it.standards<=2},observed.count{it.standards>2&&it.standards<=4},observed.count{it.standards>4}).map{it.toDouble()}
     val colors=listOf(Mint,Pine.copy(alpha=.4f),Pine.copy(alpha=.65f),Amber,Color(0xFFD9534F))
-    SectionCard("Répartition des journées","Nombre de journées observées par intensité"){CategoryBars(labels.mapIndexed{i,l->Triple(l,values[i],colors[i])}," j",0)}}
+    SectionCard(stringResource(R.string.stats_distribution_days_title),stringResource(R.string.stats_distribution_days_subtitle)){CategoryBars(labels.mapIndexed{i,l->CatBar(l,values[i],colors[i],if(observed.isEmpty())null else stringResource(R.string.stats_percent_of_observed,fmt(values[i]*100.0/observed.size,0)))},stringResource(R.string.unit_days),0)}}
 
 @Composable private fun FirstDrinkChart(days:List<LocalStatDay>){val rows=days.mapNotNull{day->day.drinks.minByOrNull{it.startedAt}?.let{d->runCatching{parseDrinkTime(d.startedAt).let{day.date to (it.hour+it.minute/60.0)}}.getOrNull()}}
-    SectionCard("Heure de première consommation","Journées avec consommation"){
-        if(rows.isEmpty()){Text("Aucune consommation dans cette période.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
-        BarChart(rows.map{it.second},rows.map{Pine},labels=rows.map{it.first.format(DAY_DATE)},unit=" h",digits=1,height=170.dp,xStart=rows.first().first.format(SHORT_DATE),xEnd=rows.last().first.format(SHORT_DATE))
+    SectionCard(stringResource(R.string.stats_first_drink_title),stringResource(R.string.stats_first_drink_subtitle)){
+        if(rows.isEmpty()){Text(stringResource(R.string.stats_first_drink_empty),style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
+        ScatterChart(rows.map{it.second},24.0,labels=rows.map{it.first.format(dayDate())},xLabels=dateTicks(rows.map{it.first}),valueText={clockText(it)})
+        Spacer(Modifier.height(8.dp))
+        MetricGrid(listOf(Triple(stringResource(R.string.stats_earliest),clockText(rows.minOf{it.second}),null),Triple(stringResource(R.string.stats_latest),clockText(rows.maxOf{it.second}),null)))
     }}
 
 @Composable private fun DayToDayChart(days:List<LocalStatDay>){val rows=days.dropWhile{!it.observed};val changes=rows.mapIndexed{i,d->if(i==0||!d.observed||!rows[i-1].observed)null else d.standards-rows[i-1].standards}
-    SectionCard("Consommation d’un jour à l’autre","Variation en standards par rapport à la veille"){
-        if(changes.count{it!=null}<2){Text("Pas assez de journées consécutives observées.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
-        LineChart(changes,color=Pine,labels=rows.map{it.date.format(DAY_DATE)},unit=" std",xStart=rows.first().date.format(SHORT_DATE),xEnd=rows.last().date.format(SHORT_DATE))
+    SectionCard(stringResource(R.string.stats_daytoday_title),stringResource(R.string.stats_daytoday_subtitle)){
+        if(changes.count{it!=null}<2){Text(stringResource(R.string.stats_daytoday_empty),style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
+        DivergingBars(changes,labels=rows.map{it.date.format(dayDate())},unit=stringResource(R.string.unit_standards),xLabels=dateTicks(rows.map{it.date}))
+        ChartLegend(listOf(Pine to stringResource(R.string.stats_legend_down),Color(0xFFD9534F) to stringResource(R.string.stats_legend_up)))
     }}
 
 private fun List<Double>.averageOrNull()=if(isEmpty())null else average()
 private fun quantile(sorted:List<Double>,q:Double):Double?{if(sorted.isEmpty())return null;val p=(sorted.size-1)*q;val lo=p.toInt();val hi=kotlin.math.ceil(p).toInt();return if(lo==hi)sorted[lo]else sorted[lo]+(sorted[hi]-sorted[lo])*(p-lo)}
 
-// Same wording as the web `distributionHelp` tooltips, so both clients explain a statistic identically.
-private val DISTRIBUTION_HELP = mapOf(
-    "Moyenne" to "Votre niveau moyen par journée observée. Elle sert à suivre l’évolution générale, mais peut être tirée vers le haut par quelques journées très élevées.",
-    "Médiane" to "Votre journée la plus représentative : la moitié des journées est en dessous et l’autre moitié au-dessus. Utile lorsque quelques épisodes élevés déforment la moyenne.",
-    "Quartile 1" to "25 % des journées observées sont à ce niveau ou moins. Peut servir de repère réaliste pour vos journées de plus faible consommation.",
-    "Quartile 3" to "75 % des journées observées sont à ce niveau ou moins. Au-dessus, vous entrez dans le quart de vos journées les plus élevées.",
-    "P90" to "90 % des journées observées sont à ce niveau ou moins. Les valeurs supérieures correspondent à vos 10 % de journées les plus élevées et peuvent aider à repérer les épisodes exceptionnels.",
-    "Écart-type" to "Indique à quel point vos journées varient autour de la moyenne. Une valeur faible signifie un rythme stable; une valeur élevée indique des écarts importants d’une journée à l’autre.",
-    "Coeff. variation" to "Rapporte la variabilité à votre moyenne. Pratique pour voir si votre rythme devient plus régulier même lorsque votre niveau moyen change.",
-    "Minimum" to "Votre plus faible journée réellement observée. Les journées sobres explicitement consignées peuvent donc donner une valeur de zéro.",
-    "Maximum" to "Votre journée observée la plus élevée. Sert à identifier l’ampleur de votre pic historique, sans en faire un record à battre.",
+// Label / value / help, in the same order and with the same wording as the web `distributionHelp` tooltips.
+private val DISTRIBUTION_STATS = listOf(
+    R.string.stats_mean to R.string.stats_mean_help,
+    R.string.stats_median to R.string.stats_median_help,
+    R.string.stats_q1 to R.string.stats_q1_help,
+    R.string.stats_q3 to R.string.stats_q3_help,
+    R.string.stats_p90 to R.string.stats_p90_help,
+    R.string.stats_stddev to R.string.stats_stddev_help,
+    R.string.stats_cv to R.string.stats_cv_help,
+    R.string.stats_minimum to R.string.stats_minimum_help,
+    R.string.stats_maximum to R.string.stats_maximum_help,
 )
 
-@Composable private fun DistributionSummary(days:List<LocalStatDay>,standardGrams:Double=CANADIAN_STANDARD_GRAMS){var metric by remember{mutableStateOf("standards")};val values=days.map{if(metric=="grams")it.grams else it.standards}.sorted();val mean=values.averageOrNull();val sd=mean?.let{m->kotlin.math.sqrt(values.sumOf{(it-m)*(it-m)}/values.size.coerceAtLeast(1))};val unit=if(metric=="grams")" g"else" std"
-    SectionCard("Distribution complète","Par journée observée · 1 consommation standard = ${fmt(standardGrams,2)} g d’alcool pur."){
+@Composable private fun DistributionSummary(days:List<LocalStatDay>,standardGrams:Double=CANADIAN_STANDARD_GRAMS){var metric by remember{mutableStateOf("standards")};val values=days.map{if(metric=="grams")it.grams else it.standards}.sorted();val mean=values.averageOrNull();val sd=mean?.let{m->kotlin.math.sqrt(values.sumOf{(it-m)*(it-m)}/values.size.coerceAtLeast(1))};val unit=stringResource(if(metric=="grams")R.string.unit_grams else R.string.unit_standards)
+    val shown=listOf(valued(mean,2,unit),valued(quantile(values,.5),2,unit),valued(quantile(values,.25),2,unit),valued(quantile(values,.75),2,unit),
+        valued(quantile(values,.9),2,unit),valued(sd,2,unit),if(mean==null||mean==0.0)"—"else fmt(sd!!/mean,2),valued(values.minOrNull(),2,unit),valued(values.maxOrNull(),2,unit))
+    SectionCard(stringResource(R.string.stats_distribution_title),stringResource(R.string.stats_distribution_subtitle,fmt(standardGrams,2))){
         MetricChips(metric){metric=it}
-        MetricGrid(listOf(
-            Triple("Moyenne",fmt(mean,2)+unit,DISTRIBUTION_HELP["Moyenne"]),
-            Triple("Médiane",fmt(quantile(values,.5),2)+unit,DISTRIBUTION_HELP["Médiane"]),
-            Triple("Quartile 1",fmt(quantile(values,.25),2)+unit,DISTRIBUTION_HELP["Quartile 1"]),
-            Triple("Quartile 3",fmt(quantile(values,.75),2)+unit,DISTRIBUTION_HELP["Quartile 3"]),
-            Triple("P90",fmt(quantile(values,.9),2)+unit,DISTRIBUTION_HELP["P90"]),
-            Triple("Écart-type",fmt(sd,2)+unit,DISTRIBUTION_HELP["Écart-type"]),
-            Triple("Coeff. variation",if(mean==null||mean==0.0)"—"else fmt(sd!!/mean,2),DISTRIBUTION_HELP["Coeff. variation"]),
-            Triple("Minimum",fmt(values.minOrNull(),2)+unit,DISTRIBUTION_HELP["Minimum"]),
-            Triple("Maximum",fmt(values.maxOrNull(),2)+unit,DISTRIBUTION_HELP["Maximum"]),
-        ))
+        MetricGrid(DISTRIBUTION_STATS.mapIndexed{i,(label,help)->Triple(stringResource(label),shown[i],stringResource(help))})
         Spacer(Modifier.height(10.dp))
-        Text("Touche une tuile pour l’explication de la statistique.",style=MaterialTheme.typography.labelLarge,color=Pine.copy(alpha=.5f))
+        Text(stringResource(R.string.stats_distribution_tap_hint),style=MaterialTheme.typography.labelLarge,color=Pine.copy(alpha=.5f))
     }}
 
-@Composable private fun LocalHealthSection(rows:List<HealthAggregateEntity>,start:LocalDate,end:LocalDate){val filtered=rows.filter{it.localDate>=start.toString()&&it.localDate<=end.toString()};val types=filtered.map{it.recordType}.distinct();if(types.isEmpty()){SectionCard("Données de santé"){Text("Aucune donnée Health Connect locale pour cette période.",style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f))};return};var metric by remember(types){mutableStateOf(types.first())};val selected=filtered.filter{it.recordType==metric}.groupBy{it.localDate}.toSortedMap();val values=selected.mapValues{(_,rs)->rs.mapNotNull{runCatching{JSONObject(it.payload).optDouble("value")}.getOrNull()}.averageOrNull()};val unit=filtered.firstOrNull{it.recordType==metric}?.let{runCatching{JSONObject(it.payload).optString("unit")}.getOrDefault("")}?:""
-    SectionCard("Données de santé","Données locales Health Connect"){
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom=6.dp)){types.forEach{t->FilterChip(metric==t,{metric=t},{Text(HEALTH_LABELS[t]?:t)},Modifier.padding(end=8.dp))}}
-        val suffix=if(unit.isBlank())""else" $unit"
-        LineChart(values.values.toList(),color=Amber,labels=values.keys.map{runCatching{LocalDate.parse(it).format(DAY_DATE)}.getOrDefault(it)},unit=suffix,xStart=values.keys.firstOrNull()?.let{runCatching{LocalDate.parse(it).format(SHORT_DATE)}.getOrDefault(it)}?:"",xEnd=values.keys.lastOrNull()?.let{runCatching{LocalDate.parse(it).format(SHORT_DATE)}.getOrDefault(it)}?:"")
+@Composable private fun LocalHealthSection(rows:List<HealthAggregateEntity>,start:LocalDate,end:LocalDate){val filtered=rows.filter{it.localDate>=start.toString()&&it.localDate<=end.toString()};val types=filtered.map{it.recordType}.distinct();if(types.isEmpty()){SectionCard(stringResource(R.string.stats_health_title)){Text(stringResource(R.string.stats_health_empty),style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f))};return};var metric by remember(types){mutableStateOf(types.first())};val selected=filtered.filter{it.recordType==metric}.groupBy{it.localDate}.toSortedMap();val values=selected.mapValues{(_,rs)->rs.mapNotNull{runCatching{JSONObject(it.payload).optDouble("value")}.getOrNull()}.averageOrNull()};val unit=filtered.firstOrNull{it.recordType==metric}?.let{runCatching{JSONObject(it.payload).optString("unit")}.getOrDefault("")}?:""
+    SectionCard(stringResource(R.string.stats_health_title),stringResource(R.string.stats_health_subtitle)){
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom=6.dp)){types.forEach{t->FilterChip(metric==t,{metric=t},{Text(healthLabel(t))},Modifier.padding(end=8.dp))}}
+        val suffix=unit.trim()
+        LineChart(values.values.toList(),color=Amber,labels=values.keys.map{runCatching{LocalDate.parse(it).format(dayDate())}.getOrDefault(it)},unit=suffix,xLabels=dateTicks(values.keys.mapNotNull{runCatching{LocalDate.parse(it)}.getOrNull()}))
         Spacer(Modifier.height(10.dp))
-        MetricGrid(listOf(Triple("Moyenne",fmt(values.values.filterNotNull().averageOrNull(),1)+suffix,null),Triple("Jours avec donnée",values.size.toString(),null)))
+        MetricGrid(listOf(Triple(stringResource(R.string.stats_mean),valued(values.values.filterNotNull().averageOrNull(),1,suffix),null),Triple(stringResource(R.string.stats_health_days_with_data),values.size.toString(),null)))
     }}
 
-private val STAT_DATE = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.CANADA_FRENCH)
+private fun statDate() = dateFormat("d MMM yyyy")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -601,12 +828,13 @@ private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onP
     var draftStart by remember(start) { mutableStateOf(start) };var draftEnd by remember(end) { mutableStateOf(end) }
     Column(Modifier.padding(horizontal=20.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState())) {
-            listOf(7 to "7 j",30 to "30 j",90 to "90 j",180 to "180 j",365 to "1 an").forEach { (days,label) ->
+            listOf(7,30,90,180,365).forEach { days ->
+                val label=if(days==365)stringResource(R.string.stats_preset_year) else stringResource(R.string.stats_preset_days,days)
                 FilterChip(selected=!custom && start==LocalDate.now().minusDays(days-1L) && end==LocalDate.now(),onClick={onPreset(days)},label={Text(label)},modifier=Modifier.padding(end=6.dp))
             }
-            FilterChip(selected=custom,onClick={draftStart=start;draftEnd=end;dialog="start"},label={Text("Personnalisée")})
+            FilterChip(selected=custom,onClick={draftStart=start;draftEnd=end;dialog="start"},label={Text(stringResource(R.string.stats_preset_custom))})
         }
-        Text("${start.format(STAT_DATE)} — ${end.format(STAT_DATE)}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f),modifier=Modifier.padding(top=4.dp,bottom=4.dp))
+        Text("${start.format(statDate())} — ${end.format(statDate())}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f),modifier=Modifier.padding(top=4.dp,bottom=4.dp))
     }
     dialog?.let { target ->
         val initial=if(target=="start")draftStart else draftEnd
@@ -614,7 +842,7 @@ private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onP
         DatePickerDialog(onDismissRequest={dialog=null},confirmButton={TextButton(onClick={
             val picked=state.selectedDateMillis?.let{Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()}?:initial
             if(target=="start"){draftStart=picked;dialog="end"}else{draftEnd=picked;if(draftStart<=picked)onCustom(draftStart,picked);dialog=null}
-        }){Text(if(target=="start") "Suivant" else "Appliquer")}},dismissButton={TextButton(onClick={dialog=null}){Text("Annuler")}}){DatePicker(state)}
+        }){Text(stringResource(if(target=="start") R.string.stats_next else R.string.stats_apply))}},dismissButton={TextButton(onClick={dialog=null}){Text(stringResource(R.string.stats_cancel))}}){DatePicker(state)}
     }
 }
 
