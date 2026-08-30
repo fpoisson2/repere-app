@@ -977,10 +977,10 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
             HorizontalDivider(Modifier.padding(vertical=6.dp))
             Text("Unités de mesure",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
             Text("Le nombre de grammes d’alcool pur dans une « consommation standard » varie selon le pays. Ajuste-le si tu préfères une autre référence.",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                listOf("Canada" to CANADIAN_STANDARD_GRAMS,"USA" to US_STANDARD_GRAMS,"UK" to UK_STANDARD_GRAMS,"Australie" to 10.0).forEach{(label,grams)->
+            LazyRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                items(listOf("Canada" to CANADIAN_STANDARD_GRAMS,"USA" to US_STANDARD_GRAMS,"UK" to UK_STANDARD_GRAMS,"Australie" to 10.0)){(label,grams)->
                     val current=standardGramsText.replace(',','.').toDoubleOrNull()
-                    FilterChip(selected=current!=null&&kotlin.math.abs(current-grams)<0.01,onClick={standardGramsText=String.format(Locale.CANADA_FRENCH,"%.2f",grams)},label={Text("$label · ${String.format(Locale.CANADA_FRENCH,"%.2f",grams)} g")})
+                    FilterChip(selected=current!=null&&kotlin.math.abs(current-grams)<0.01,onClick={standardGramsText=String.format(Locale.CANADA_FRENCH,"%.2f",grams)},label={Text("$label · ${String.format(Locale.CANADA_FRENCH,"%.2f",grams)} g",maxLines=1,softWrap=false)})
                 }
             }
             OutlinedTextField(
@@ -991,9 +991,9 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
                 modifier=Modifier.fillMaxWidth(),
             )
             Text("Unité de volume",fontWeight=FontWeight.Bold)
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                FilterChip(selected=volumeUnit=="ml",onClick={volumeUnit="ml"},label={Text("Millilitres (ml)")})
-                FilterChip(selected=volumeUnit=="oz",onClick={volumeUnit="oz"},label={Text("Onces liquides (oz)")})
+            LazyRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                item{FilterChip(selected=volumeUnit=="ml",onClick={volumeUnit="ml"},label={Text("Millilitres (ml)",maxLines=1,softWrap=false)})}
+                item{FilterChip(selected=volumeUnit=="oz",onClick={volumeUnit="oz"},label={Text("Onces liquides (oz)",maxLines=1,softWrap=false)})}
             }
             Button(onClick={scope.launch{
                 val grams=standardGramsText.replace(',','.').toDoubleOrNull()?.coerceIn(4.0,30.0)?:localSettings.standardDrinkGrams
