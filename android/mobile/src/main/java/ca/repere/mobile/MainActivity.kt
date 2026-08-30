@@ -46,17 +46,23 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalBar
 import androidx.compose.material.icons.filled.Percent
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Alignment
@@ -70,6 +76,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.health.connect.client.PermissionController
@@ -92,6 +99,10 @@ import ca.repere.core.US_STANDARD_GRAMS
 import ca.repere.core.UK_STANDARD_GRAMS
 import ca.repere.core.mlToOunces
 import ca.repere.core.ouncesToMl
+import ca.repere.core.kgToLb
+import ca.repere.core.lbToKg
+import ca.repere.core.cmToIn
+import ca.repere.core.inToCm
 import ca.repere.core.CredentialStore
 import ca.repere.core.BacDrink
 import ca.repere.core.BacProfile
@@ -675,6 +686,25 @@ private fun PresetEditorDialog(repository:SyncRepository, preset:PresetEntity, o
     )
 }
 
+/** Groups related settings under a titled card with a leading icon, for a consistent, scannable layout. */
+@Composable
+private fun SettingsSection(icon:ImageVector,title:String,subtitle:String?=null,content:@Composable ColumnScope.()->Unit) {
+    Card(colors=CardDefaults.cardColors(containerColor=Color.White),modifier=Modifier.fillMaxWidth()){
+        Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+                Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(Mint),contentAlignment=Alignment.Center){
+                    Icon(icon,contentDescription=null,tint=Pine,modifier=Modifier.size(20.dp))
+                }
+                Column(Modifier.weight(1f)){
+                    Text(title,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+                    subtitle?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
+                }
+            }
+            content()
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BodyMetricsSection(context:Context) {
@@ -683,46 +713,68 @@ private fun BodyMetricsSection(context:Context) {
     var sexOpen by remember { mutableStateOf(false) }
     var weight by remember { mutableStateOf("") }
     var height by remember { mutableStateOf("") }
+    var weightUnit by remember { mutableStateOf(localProfile.weightUnit()) }
+    var heightUnit by remember { mutableStateOf(localProfile.heightUnit()) }
     var elimination by remember { mutableStateOf(localProfile.bacEliminationRate().toString()) }
     var ratio by remember { mutableStateOf<Double?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    fun formatWeight(kg:Double,unit:String)=kotlin.math.round(if(unit=="lb")kgToLb(kg) else kg).toLong().toString()
+    fun formatHeight(cm:Double,unit:String)=kotlin.math.round(if(unit=="in")cmToIn(cm) else cm).toLong().toString()
     LaunchedEffect(Unit) {
-        sex=localProfile.bodySex();localProfile.bodyHeightCm()?.let{height=it.toInt().toString()}
-        localProfile.bacWeightKg()?.let { weight=it.toInt().toString() }
+        sex=localProfile.bodySex();localProfile.bodyHeightCm()?.let{height=formatHeight(it,heightUnit)}
+        localProfile.bacWeightKg()?.let { weight=formatWeight(it,weightUnit) }
         ratio=localProfile.bacDistributionRatio()
         runCatching { Net.json(context, "/api/auth/me") }.onSuccess {
             sex = it.optString("sex", "unspecified").ifBlank { "unspecified" }
-            if(!it.isNull("weight_kg"))weight = it.optDouble("weight_kg").toInt().toString()
-            if(!it.isNull("height_cm"))height = it.optDouble("height_cm").toInt().toString()
+            if(!it.isNull("weight_kg"))weight = formatWeight(it.optDouble("weight_kg"),weightUnit)
+            if(!it.isNull("height_cm"))height = formatHeight(it.optDouble("height_cm"),heightUnit)
             if(!it.isNull("elimination_rate"))elimination=it.optDouble("elimination_rate").toString()
             val remoteRatio=if (it.isNull("effective_distribution_ratio")) it.doubleOrNull("distribution_ratio") else it.optDouble("effective_distribution_ratio")
             if(remoteRatio!=null)ratio=remoteRatio
-            if(weight.toDoubleOrNull()!=null&&ratio!=null){localProfile.saveBacProfile(weight.toDouble(),ratio!!,elimination.toDoubleOrNull()?:.015);localProfile.saveBodyMetrics(sex,height.toDoubleOrNull())}
+            val weightKg=weight.toDoubleOrNull()?.let{if(weightUnit=="lb")lbToKg(it) else it}
+            if(weightKg!=null&&ratio!=null){localProfile.saveBacProfile(weightKg,ratio!!,elimination.toDoubleOrNull()?:.015);localProfile.saveBodyMetrics(sex,height.toDoubleOrNull()?.let{if(heightUnit=="in")inToCm(it) else it})}
         }
     }
     val sexLabel = mapOf("unspecified" to R.string.sex_unspecified, "female" to R.string.sex_female, "male" to R.string.sex_male)
     val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-    Text(stringResource(R.string.body_profile_title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-    Text(stringResource(R.string.body_profile_subtitle), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .65f))
     Box {
         OutlinedTextField(sexLabel[sex]?.let { stringResource(it) } ?: sex, {}, readOnly = true, label = { Text(stringResource(R.string.field_sex)) }, modifier = Modifier.fillMaxWidth(), trailingIcon = { TextButton(onClick = { sexOpen = true }) { Text(stringResource(R.string.action_change)) } })
         DropdownMenu(expanded = sexOpen, onDismissRequest = { sexOpen = false }) {
             sexLabel.forEach { (v, l) -> DropdownMenuItem(text = { Text(stringResource(l)) }, onClick = { sex = v; sexOpen = false }) }
         }
     }
-    OutlinedTextField(weight, { weight = it.filter(Char::isDigit) }, label = { Text(stringResource(R.string.field_weight_kg)) }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
-    OutlinedTextField(height, { height = it.filter(Char::isDigit) }, label = { Text(stringResource(R.string.field_height_cm)) }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
+    fun switchWeightUnit(newUnit:String){
+        if(newUnit!=weightUnit){weight.toDoubleOrNull()?.let{val kg=if(weightUnit=="lb")lbToKg(it) else it;weight=formatWeight(kg,newUnit)}}
+        weightUnit=newUnit;localProfile.saveMeasurementUnits(weightUnit,heightUnit)
+    }
+    fun switchHeightUnit(newUnit:String){
+        if(newUnit!=heightUnit){height.toDoubleOrNull()?.let{val cm=if(heightUnit=="in")inToCm(it) else it;height=formatHeight(cm,newUnit)}}
+        heightUnit=newUnit;localProfile.saveMeasurementUnits(weightUnit,heightUnit)
+    }
+    Text(stringResource(R.string.settings_weight_unit), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item{FilterChip(selected=weightUnit=="kg",onClick={switchWeightUnit("kg")},label={Text(stringResource(R.string.settings_unit_kg),maxLines=1,softWrap=false)})}
+        item{FilterChip(selected=weightUnit=="lb",onClick={switchWeightUnit("lb")},label={Text(stringResource(R.string.settings_unit_lb),maxLines=1,softWrap=false)})}
+    }
+    OutlinedTextField(weight, { weight = it.filter(Char::isDigit) }, label = { Text(stringResource(R.string.field_weight, stringResource(if(weightUnit=="lb")R.string.unit_abbr_lb else R.string.unit_abbr_kg))) }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
+    Text(stringResource(R.string.settings_height_unit), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+    LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item{FilterChip(selected=heightUnit=="cm",onClick={switchHeightUnit("cm")},label={Text(stringResource(R.string.settings_unit_cm),maxLines=1,softWrap=false)})}
+        item{FilterChip(selected=heightUnit=="in",onClick={switchHeightUnit("in")},label={Text(stringResource(R.string.settings_unit_in),maxLines=1,softWrap=false)})}
+    }
+    OutlinedTextField(height, { height = it.filter(Char::isDigit) }, label = { Text(stringResource(R.string.field_height, stringResource(if(heightUnit=="in")R.string.unit_abbr_in else R.string.unit_abbr_cm))) }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
     OutlinedTextField(elimination,{elimination=it.filter{char->char.isDigit()||char=='.'}},label={Text(stringResource(R.string.elimination_rate))},supportingText={Text(stringResource(R.string.elimination_rate_hint))},singleLine=true,keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal),modifier=Modifier.fillMaxWidth())
     ratio?.let { Text(stringResource(R.string.distribution_factor, String.format(Locale.getDefault(), "%.3f", it)), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .7f)) }
     Button(onClick = {
         scope.launch {
-            val localWeight=weight.toDoubleOrNull();val localRatio=localWeight?.let { distributionRatio(sex,height.toDoubleOrNull(),it,ratio?:.6) };val localElimination=elimination.toDoubleOrNull()
-            if(localWeight==null||localRatio==null){message=context.getString(R.string.weight_required);return@launch};if(localElimination==null||localElimination !in .005..0.03){message=context.getString(R.string.invalid_elimination_rate);return@launch}
-            ratio=localRatio;localProfile.saveBacProfile(localWeight,localRatio,localElimination);localProfile.saveBodyMetrics(sex,height.toDoubleOrNull());message=context.getString(R.string.profile_saved_device)
-            val body = JSONObject().put("sex", sex)
-            weight.toDoubleOrNull()?.let { body.put("weight_kg", it) }
-            height.toDoubleOrNull()?.let { body.put("height_cm", it) }
+            val localWeightKg=weight.toDoubleOrNull()?.let{if(weightUnit=="lb")lbToKg(it) else it}
+            val localHeightCm=height.toDoubleOrNull()?.let{if(heightUnit=="in")inToCm(it) else it}
+            val localRatio=localWeightKg?.let { distributionRatio(sex,localHeightCm,it,ratio?:.6) };val localElimination=elimination.toDoubleOrNull()
+            if(localWeightKg==null||localRatio==null){message=context.getString(R.string.weight_required);return@launch};if(localElimination==null||localElimination !in .005..0.03){message=context.getString(R.string.invalid_elimination_rate);return@launch}
+            ratio=localRatio;localProfile.saveBacProfile(localWeightKg,localRatio,localElimination);localProfile.saveBodyMetrics(sex,localHeightCm);localProfile.saveMeasurementUnits(weightUnit,heightUnit);message=context.getString(R.string.profile_saved_device)
+            val body = JSONObject().put("sex", sex).put("weight_kg", localWeightKg)
+            localHeightCm?.let { body.put("height_cm", it) }
             body.put("elimination_rate",localElimination)
             runCatching { Net.send(context, "/api/settings", body, "PATCH") }
                 .onSuccess { message = context.getString(R.string.profile_saved_scheduled) }
@@ -971,84 +1023,91 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
     // state with defaults (false/0) every time "Synchroniser la montre" was pressed.
     fun syncToWatch(currentToken:String)=scope.launch{val request=PutDataMapRequest.create("/repere/credentials").apply{dataMap.putString("server",server.trimEnd('/'));dataMap.putString("token",currentToken);dataMap.putLong("updated",System.currentTimeMillis())}.asPutDataRequest().setUrgent();runCatching{Wearable.getDataClient(context).putDataItem(request).await()}}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())){PageHeader(stringResource(R.string.settings_eyebrow),stringResource(R.string.nav_settings))
-        Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
-            OutlinedTextField(server,onServer,label={Text(stringResource(R.string.settings_server_address))},modifier=Modifier.fillMaxWidth(),singleLine=true)
-            Text(stringResource(R.string.settings_local_first),color=Pine.copy(alpha=.72f))
-            if(token.isBlank()){
-                Button(onClick={OAuthClient.start(context,server)},enabled=server.isNotBlank(),modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_sign_in))}
-                Text(stringResource(R.string.settings_oauth_note),color=Pine.copy(alpha=.72f),style=MaterialTheme.typography.bodySmall)
-            }else{
-                Card(colors=CardDefaults.cardColors(containerColor=Mint),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(18.dp)){Text(stringResource(R.string.settings_device_paired),fontWeight=FontWeight.Bold);Text(stringResource(R.string.settings_offline_active),color=Pine.copy(alpha=.72f))}}
-                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(stringResource(R.string.settings_sync_with_server),fontWeight=FontWeight.Bold);Text(stringResource(if(syncEnabled)R.string.settings_changes_sent else R.string.settings_data_stays),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
-                    Switch(checked=syncEnabled,onCheckedChange={credentials.setSyncEnabled(it);onSyncEnabled(it);if(it)SyncWorker.schedule(context)})}
-                OutlinedButton(onClick={syncToWatch(token);message=context.getString(R.string.settings_watch_configured)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_sync_watch))}
-                TextButton(onClick={scope.launch{OAuthClient.signOut(context);onToken("");message=context.getString(R.string.settings_signed_out)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_sign_out))}
+        Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+            SettingsSection(Icons.Filled.Sync,stringResource(R.string.settings_section_connection),stringResource(R.string.settings_local_first)){
+                OutlinedTextField(server,onServer,label={Text(stringResource(R.string.settings_server_address))},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                if(token.isBlank()){
+                    Button(onClick={OAuthClient.start(context,server)},enabled=server.isNotBlank(),modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_sign_in))}
+                    Text(stringResource(R.string.settings_oauth_note),color=Pine.copy(alpha=.72f),style=MaterialTheme.typography.bodySmall)
+                }else{
+                    Card(colors=CardDefaults.cardColors(containerColor=Mint),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(18.dp)){Text(stringResource(R.string.settings_device_paired),fontWeight=FontWeight.Bold);Text(stringResource(R.string.settings_offline_active),color=Pine.copy(alpha=.72f))}}
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(stringResource(R.string.settings_sync_with_server),fontWeight=FontWeight.Bold);Text(stringResource(if(syncEnabled)R.string.settings_changes_sent else R.string.settings_data_stays),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
+                        Switch(checked=syncEnabled,onCheckedChange={credentials.setSyncEnabled(it);onSyncEnabled(it);if(it)SyncWorker.schedule(context)})}
+                    OutlinedButton(onClick={syncToWatch(token);message=context.getString(R.string.settings_watch_configured)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_sync_watch))}
+                    TextButton(onClick={scope.launch{OAuthClient.signOut(context);onToken("");message=context.getString(R.string.settings_signed_out)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_sign_out))}
+                }
+                Text(message,color=Pine.copy(alpha=.72f))
             }
-            Text(message,color=Pine.copy(alpha=.72f))
-            HorizontalDivider(Modifier.padding(vertical=6.dp))
-            Text(stringResource(R.string.calculation_history),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
-            OutlinedTextField(trackingStart,{trackingStart=it},label={Text(stringResource(R.string.tracking_start_date))},supportingText={Text(stringResource(R.string.iso_date_hint))},modifier=Modifier.fillMaxWidth(),singleLine=true)
-            Text(stringResource(R.string.day_start),fontWeight=FontWeight.Bold)
-            Text(stringResource(R.string.day_start_explanation,dayStart),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
-            Slider(value=dayStart.toFloat(),onValueChange={dayStart=it.toInt()},valueRange=0f..23f,steps=22)
-            Text(stringResource(R.string.hour_value,dayStart),fontWeight=FontWeight.Bold)
-            Text(stringResource(R.string.session_gap),fontWeight=FontWeight.Bold)
-            Text(stringResource(R.string.session_gap_explanation),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
-            Slider(value=sessionGap.toFloat(),onValueChange={sessionGap=(it*2).toInt()/2.0},valueRange=1f..12f,steps=21)
-            Text(stringResource(R.string.hours_value,sessionGap),fontWeight=FontWeight.Bold)
-            Button(onClick={scope.launch{val date=trackingStart.trim().takeIf{it.isNotBlank()};if(date!=null&&runCatching{LocalDate.parse(date)}.isFailure){message=context.getString(R.string.invalid_date);return@launch};repository.saveSettings(dayStart,sessionGap,date);message=context.getString(R.string.settings_saved_locally);if(syncEnabled)SyncWorker.schedule(context)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.save_calculation_settings))}
-            HorizontalDivider(Modifier.padding(vertical=6.dp))
-            BodyMetricsSection(context)
-            HorizontalDivider(Modifier.padding(vertical=6.dp))
-            Text(stringResource(R.string.settings_units_title),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.settings_units_note),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
-            LazyRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                items(listOf(R.string.country_canada to CANADIAN_STANDARD_GRAMS,R.string.country_usa to US_STANDARD_GRAMS,R.string.country_uk to UK_STANDARD_GRAMS,R.string.country_australia to 10.0)){(labelRes,grams)->
-                    val current=standardGramsText.replace(',','.').toDoubleOrNull()
-                    FilterChip(selected=current!=null&&kotlin.math.abs(current-grams)<0.01,onClick={standardGramsText=String.format(Locale.getDefault(),"%.2f",grams)},label={Text(stringResource(R.string.standard_chip,stringResource(labelRes),String.format(Locale.getDefault(),"%.2f",grams)),maxLines=1,softWrap=false)})
+            SettingsSection(Icons.Filled.CalendarToday,stringResource(R.string.calculation_history)){
+                OutlinedTextField(trackingStart,{trackingStart=it},label={Text(stringResource(R.string.tracking_start_date))},supportingText={Text(stringResource(R.string.iso_date_hint))},modifier=Modifier.fillMaxWidth(),singleLine=true)
+                Text(stringResource(R.string.day_start),fontWeight=FontWeight.Bold)
+                Text(stringResource(R.string.day_start_explanation,dayStart),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
+                Slider(value=dayStart.toFloat(),onValueChange={dayStart=it.toInt()},valueRange=0f..23f,steps=22)
+                Text(stringResource(R.string.hour_value,dayStart),fontWeight=FontWeight.Bold)
+                Text(stringResource(R.string.session_gap),fontWeight=FontWeight.Bold)
+                Text(stringResource(R.string.session_gap_explanation),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))
+                Slider(value=sessionGap.toFloat(),onValueChange={sessionGap=(it*2).toInt()/2.0},valueRange=1f..12f,steps=21)
+                Text(stringResource(R.string.hours_value,sessionGap),fontWeight=FontWeight.Bold)
+                Button(onClick={scope.launch{val date=trackingStart.trim().takeIf{it.isNotBlank()};if(date!=null&&runCatching{LocalDate.parse(date)}.isFailure){message=context.getString(R.string.invalid_date);return@launch};repository.saveSettings(dayStart,sessionGap,date);message=context.getString(R.string.settings_saved_locally);if(syncEnabled)SyncWorker.schedule(context)}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.save_calculation_settings))}
+            }
+            SettingsSection(Icons.Filled.Person,stringResource(R.string.body_profile_title),stringResource(R.string.body_profile_subtitle)){
+                BodyMetricsSection(context)
+            }
+            SettingsSection(Icons.Filled.Straighten,stringResource(R.string.settings_units_title),stringResource(R.string.settings_units_note)){
+                LazyRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    items(listOf(R.string.country_canada to CANADIAN_STANDARD_GRAMS,R.string.country_usa to US_STANDARD_GRAMS,R.string.country_uk to UK_STANDARD_GRAMS,R.string.country_australia to 10.0)){(labelRes,grams)->
+                        val current=standardGramsText.replace(',','.').toDoubleOrNull()
+                        FilterChip(selected=current!=null&&kotlin.math.abs(current-grams)<0.01,onClick={standardGramsText=String.format(Locale.getDefault(),"%.2f",grams)},label={Text(stringResource(R.string.standard_chip,stringResource(labelRes),String.format(Locale.getDefault(),"%.2f",grams)),maxLines=1,softWrap=false)})
+                    }
+                }
+                OutlinedTextField(
+                    standardGramsText, {standardGramsText=it.filter{c->c.isDigit()||c=='.'||c==','}},
+                    label={Text(stringResource(R.string.settings_grams_per_standard))},singleLine=true,
+                    supportingText={Text(stringResource(R.string.settings_grams_range))},
+                    keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal),
+                    modifier=Modifier.fillMaxWidth(),
+                )
+                Text(stringResource(R.string.settings_volume_unit),fontWeight=FontWeight.Bold)
+                LazyRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    item{FilterChip(selected=volumeUnit=="ml",onClick={volumeUnit="ml"},label={Text(stringResource(R.string.settings_millilitres),maxLines=1,softWrap=false)})}
+                    item{FilterChip(selected=volumeUnit=="oz",onClick={volumeUnit="oz"},label={Text(stringResource(R.string.settings_fluid_ounces),maxLines=1,softWrap=false)})}
+                }
+                Button(onClick={scope.launch{
+                    val grams=standardGramsText.replace(',','.').toDoubleOrNull()?.coerceIn(4.0,30.0)?:localSettings.standardDrinkGrams
+                    standardGramsText=String.format(Locale.getDefault(),"%.2f",grams)
+                    repository.saveMeasurementPreferences(grams,volumeUnit);message=context.getString(R.string.settings_units_saved);if(syncEnabled)SyncWorker.schedule(context)
+                }},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_save_units))}
+            }
+            SettingsSection(Icons.Filled.Tune,stringResource(R.string.settings_app_section)){
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                    Column(Modifier.weight(1f)){Text(stringResource(R.string.settings_reminder),fontWeight=FontWeight.Bold)
+                        Text(stringResource(R.string.settings_reminder_subtitle),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
+                    Switch(checked=reminderOn,onCheckedChange={want ->
+                        if(!want){reminderOn=false;CheckInReminder.setEnabled(context,false);message=context.getString(R.string.settings_reminder_off)}
+                        else if(android.os.Build.VERSION.SDK_INT>=33 && androidx.core.content.ContextCompat.checkSelfPermission(context,android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+                            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }else{reminderOn=true;CheckInReminder.setEnabled(context,true);scope.launch{CheckInReminder.refreshAndSchedule(context)};message=context.getString(R.string.settings_reminder_on)}
+                    })
+                }
+                OutlinedButton(onClick=onOpenHealth,modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_health_data))}
+                OutlinedButton(onClick=onOpenHistory,modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_full_history))}
+                OutlinedButton(onClick={exportLauncher.launch("repere-consommations.csv")},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.export_csv))}
+            }
+            SettingsSection(Icons.Filled.Info,stringResource(R.string.about_support)){
+                Text(stringResource(R.string.app_version,BuildConfig.VERSION_NAME),color=Pine.copy(alpha=.72f))
+                OutlinedButton(onClick={val intent=if(android.os.Build.VERSION.SDK_INT>=33)Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS,Uri.parse("package:${context.packageName}"))else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${context.packageName}"));context.startActivity(intent)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.language_settings))}
+                OutlinedButton(onClick={scope.launch{if(!onCheckUpdates())showUpToDateDialog=true}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
+                OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app")))},modifier=Modifier.fillMaxWidth()){
+                    Icon(painterResource(R.drawable.ic_github),contentDescription=null,modifier=Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text(stringResource(R.string.source_code))
+                }
+                if(server.isNotBlank())OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(server.trimEnd('/')+"/about")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.project_website))}
+                OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://buymeacoffee.com/fpoisson")))},modifier=Modifier.fillMaxWidth()){
+                    Icon(painterResource(R.drawable.ic_coffee),contentDescription=null,modifier=Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text(stringResource(R.string.support_repere))
+                }
+                OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app/issues")))},modifier=Modifier.fillMaxWidth()){
+                    Icon(painterResource(R.drawable.ic_github),contentDescription=null,modifier=Modifier.size(18.dp));Spacer(Modifier.width(8.dp));Text(stringResource(R.string.report_issue))
                 }
             }
-            OutlinedTextField(
-                standardGramsText, {standardGramsText=it.filter{c->c.isDigit()||c=='.'||c==','}},
-                label={Text(stringResource(R.string.settings_grams_per_standard))},singleLine=true,
-                supportingText={Text(stringResource(R.string.settings_grams_range))},
-                keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal),
-                modifier=Modifier.fillMaxWidth(),
-            )
-            Text(stringResource(R.string.settings_volume_unit),fontWeight=FontWeight.Bold)
-            LazyRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                item{FilterChip(selected=volumeUnit=="ml",onClick={volumeUnit="ml"},label={Text(stringResource(R.string.settings_millilitres),maxLines=1,softWrap=false)})}
-                item{FilterChip(selected=volumeUnit=="oz",onClick={volumeUnit="oz"},label={Text(stringResource(R.string.settings_fluid_ounces),maxLines=1,softWrap=false)})}
-            }
-            Button(onClick={scope.launch{
-                val grams=standardGramsText.replace(',','.').toDoubleOrNull()?.coerceIn(4.0,30.0)?:localSettings.standardDrinkGrams
-                standardGramsText=String.format(Locale.getDefault(),"%.2f",grams)
-                repository.saveMeasurementPreferences(grams,volumeUnit);message=context.getString(R.string.settings_units_saved);if(syncEnabled)SyncWorker.schedule(context)
-            }},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_save_units))}
-            HorizontalDivider(Modifier.padding(vertical=6.dp))
-            Text(stringResource(R.string.settings_app_section),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                Column(Modifier.weight(1f)){Text(stringResource(R.string.settings_reminder),fontWeight=FontWeight.Bold)
-                    Text(stringResource(R.string.settings_reminder_subtitle),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
-                Switch(checked=reminderOn,onCheckedChange={want ->
-                    if(!want){reminderOn=false;CheckInReminder.setEnabled(context,false);message=context.getString(R.string.settings_reminder_off)}
-                    else if(android.os.Build.VERSION.SDK_INT>=33 && androidx.core.content.ContextCompat.checkSelfPermission(context,android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
-                        notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                    }else{reminderOn=true;CheckInReminder.setEnabled(context,true);scope.launch{CheckInReminder.refreshAndSchedule(context)};message=context.getString(R.string.settings_reminder_on)}
-                })
-            }
-            OutlinedButton(onClick=onOpenHealth,modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_health_data))}
-            OutlinedButton(onClick=onOpenHistory,modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_full_history))}
-            OutlinedButton(onClick={exportLauncher.launch("repere-consommations.csv")},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.export_csv))}
-            HorizontalDivider(Modifier.padding(vertical=6.dp))
-            Text(stringResource(R.string.about_support),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.app_version,BuildConfig.VERSION_NAME),color=Pine.copy(alpha=.72f))
-            OutlinedButton(onClick={val intent=if(android.os.Build.VERSION.SDK_INT>=33)Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS,Uri.parse("package:${context.packageName}"))else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${context.packageName}"));context.startActivity(intent)},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.language_settings))}
-            OutlinedButton(onClick={scope.launch{if(!onCheckUpdates())showUpToDateDialog=true}},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.check_updates))}
-            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.source_code))}
-            if(server.isNotBlank())OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(server.trimEnd('/')+"/about")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.project_website))}
-            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://buymeacoffee.com/fpoisson")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.support_repere))}
-            OutlinedButton(onClick={context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/fpoisson2/repere-app/issues")))},modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.report_issue))}
             Spacer(Modifier.height(20.dp))
         }
     }
