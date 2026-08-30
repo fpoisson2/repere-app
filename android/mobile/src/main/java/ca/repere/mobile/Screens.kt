@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringArrayResource
@@ -994,7 +996,10 @@ fun GoalsScreen(repository:SyncRepository,localGoals:List<GoalEntity>,drinks:Lis
     var error by remember { mutableStateOf<String?>(null) }
     var adding by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(goals.toString()){for(i in 0 until goals.length()){val g=goals.getJSONObject(i);val reached=if(g.optString("temporal_mode")=="consecutive_weeks")g.optInt("consecutive_weeks_achieved")>=g.optInt("consecutive_weeks",1)else g.optBoolean("on_track");if(reached)repository.markGoalAchieved(g.getString("client_id"))}}
+    val haptic = LocalHapticFeedback.current
+    val alreadyAchieved = remember(localGoals) { localGoals.filter { it.achieved }.map { it.clientId }.toSet() }
+    LaunchedEffect(goals.toString()){for(i in 0 until goals.length()){val g=goals.getJSONObject(i);val reached=if(g.optString("temporal_mode")=="consecutive_weeks")g.optInt("consecutive_weeks_achieved")>=g.optInt("consecutive_weeks",1)else g.optBoolean("on_track")
+        if(reached){val clientId=g.getString("client_id");if(clientId !in alreadyAchieved)haptic.performHapticFeedback(HapticFeedbackType.LongPress);repository.markGoalAchieved(clientId)}}}
     PullToRefreshBox(isRefreshing = false, onRefresh = onSync, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             PageHeaderLite(stringResource(R.string.goals_eyebrow), stringResource(R.string.nav_goals))

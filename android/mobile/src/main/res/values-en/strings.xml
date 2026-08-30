@@ -1,5 +1,14 @@
 <resources>
     <string name="app_name">Repère</string>
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_start">Get started</string>
+    <string name="onboarding_track_title">Log a drink in one tap</string>
+    <string name="onboarding_track_body">Add a favourite or a custom entry from the Now screen — no account or connection needed.</string>
+    <string name="onboarding_bac_title">Blood alcohol estimate</string>
+    <string name="onboarding_bac_body">Fill in your body profile (weight, height) in Settings to enable it — always paired with a driving warning.</string>
+    <string name="onboarding_offline_title">Offline by default</string>
+    <string name="onboarding_offline_body">Your data stays on your phone. Turn on sync later in Settings if you want to connect your own server.</string>
     <string name="update_available">A new version of Repère is available.</string>
     <string name="update_action">Update</string>
     <string name="update_ready_restart">Update downloaded, ready to install.</string>

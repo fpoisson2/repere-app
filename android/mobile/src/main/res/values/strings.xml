@@ -1,5 +1,14 @@
 <resources>
     <string name="app_name">Repère</string>
+    <string name="onboarding_skip">Passer</string>
+    <string name="onboarding_next">Suivant</string>
+    <string name="onboarding_start">Commencer</string>
+    <string name="onboarding_track_title">Note un verre en un geste</string>
+    <string name="onboarding_track_body">Ajoute un favori ou une entrée personnalisée depuis l\'écran Maintenant — sans compte ni connexion requise.</string>
+    <string name="onboarding_bac_title">Estimation du taux d\'alcoolémie</string>
+    <string name="onboarding_bac_body">Renseigne ton profil (poids, taille) dans Réglages pour l\'activer — toujours accompagnée d\'un avertissement sur la conduite.</string>
+    <string name="onboarding_offline_title">Hors ligne par défaut</string>
+    <string name="onboarding_offline_body">Tes données restent sur ton téléphone. Active la synchronisation plus tard dans Réglages si tu veux les relier à ton propre serveur.</string>
     <string name="update_available">Une nouvelle version de Repère est disponible.</string>
     <string name="update_action">Mettre à jour</string>
     <string name="update_ready_restart">Mise à jour téléchargée, prête à être installée.</string>
