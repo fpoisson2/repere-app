@@ -38,8 +38,8 @@ class RepereTileService : TileService() {
             val today = prefs.getFloat("today_standard", 0f)
             val bac = prefs.getFloat("bac_g_per_l", 0f)
             val primary = if (today > 10) today.toInt().toString() else String.format(Locale.getDefault(), "%.1f", today)
-            val secondary = if (active) "Consommation en cours" else "cons. standard aujourd'hui"
-            val bacLine = String.format(Locale.getDefault(), "Alcoolémie estimée %.2f g/L", bac)
+            val secondary = getString(if (active) R.string.wear_drink_in_progress else R.string.wear_standards_today)
+            val bacLine = getString(R.string.wear_bac_tile, String.format(Locale.getDefault(), "%.2f", bac))
 
             TileBuilders.Tile.Builder()
                 .setResourcesVersion(RESOURCES_VERSION)
@@ -86,7 +86,7 @@ class RepereTileService : TileService() {
             .setResponsiveContentInsetEnabled(true)
             .setContent(content)
             .setPrimaryChipContent(
-                CompactChip.Builder(this, "Ouvrir", openApp, device)
+                CompactChip.Builder(this, getString(R.string.wear_open), openApp, device)
                     .setChipColors(androidx.wear.protolayout.material.ChipColors.primaryChipColors(Colors.DEFAULT))
                     .build(),
             )

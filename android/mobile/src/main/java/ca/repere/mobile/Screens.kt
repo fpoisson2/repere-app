@@ -31,8 +31,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -58,44 +56,6 @@ import ca.repere.core.parseDrinkTime
 import ca.repere.core.trackedDay
 
 /* ---------- shared building blocks ---------- */
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun <T> RemoteScreen(
-    context: Context,
-    eyebrow: String,
-    title: String,
-    loader: suspend (Context) -> T,
-    content: @Composable (T) -> Unit,
-) {
-    var data by remember { mutableStateOf<T?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var refreshing by remember { mutableStateOf(false) }
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(tick) {
-        refreshing = true; error = null
-        runCatching { loader(context) }
-            .onSuccess { data = it }
-            .onFailure { error = it.message ?: "Chargement impossible" }
-        refreshing = false
-    }
-    // Refresh when the app returns to the foreground (but not on the initial composition).
-    var armed by remember { mutableStateOf(false) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { if (armed && !refreshing) tick++ else armed = true }
-    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { tick++ }, modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            if (title.isNotBlank()) PageHeaderLite(eyebrow, title)
-            when {
-                data != null -> content(data!!)
-                error != null -> Text(
-                    error!!, Modifier.padding(20.dp), color = Pine.copy(alpha = .7f),
-                )
-                else -> Text("Chargement…", Modifier.padding(20.dp), color = Pine.copy(alpha = .6f))
-            }
-            Spacer(Modifier.height(28.dp))
-        }
-    }
-}
 
 @Composable
 private fun PageHeaderLite(eyebrow: String, title: String) {
@@ -265,7 +225,7 @@ private fun CategoryBars(rows: List<CatBar>, unit: String, digits: Int = 1) {
             Column {
                 Row(Modifier.fillMaxWidth()) {
                     Text(row.label, Modifier.weight(1f).padding(end = 10.dp), style = MaterialTheme.typography.bodyLarge, color = Pine.copy(alpha = .85f))
-                    Text("${fmt(row.value, digits)}$unit", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Pine)
+                    Text(valued(row.value, digits, unit), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = Pine)
                 }
                 Spacer(Modifier.height(5.dp))
                 Box(Modifier.fillMaxWidth().height(14.dp).background(Mint.copy(alpha = .55f), RoundedCornerShape(7.dp))) {
@@ -329,7 +289,7 @@ private fun BarChart(
 @Composable
 private fun ComboChart(
     bars: List<Double>, lines: List<Pair<Color, List<Double?>>>, threshold: Double? = null, modifier: Modifier = Modifier,
-    labels: List<String> = emptyList(), unit: String = "", lineNames: List<String> = listOf("7 jours", "30 jours", "90 jours"),
+    labels: List<String> = emptyList(), unit: String = "", lineNames: List<String> = emptyList(),
     height: Dp = 230.dp, xLabels: List<String> = emptyList(), thresholdName: String? = null, barName: String = stringResource(R.string.chart_series_per_day),
 ) {
     val movingNames = lineNames.map { stringResource(R.string.chart_moving_average, it) }
@@ -380,7 +340,7 @@ private fun ComboChart(
         ChartLegend(
             buildList {
                 add(Pine.copy(alpha = .22f) to barName)
-                lines.forEachIndexed { n, pair -> add(pair.first to movingNames.getOrElse(n) { "" }) }
+                lines.forEachIndexed { n, pair -> movingNames.getOrNull(n)?.let { add(pair.first to it) } }
                 if (threshold != null && thresholdName != null) add(Color(0xFFD9534F) to thresholdName)
             },
         )
@@ -834,7 +794,7 @@ private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onP
             }
             FilterChip(selected=custom,onClick={draftStart=start;draftEnd=end;dialog="start"},label={Text(stringResource(R.string.stats_preset_custom))})
         }
-        Text("${start.format(statDate())} — ${end.format(statDate())}",style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f),modifier=Modifier.padding(top=4.dp,bottom=4.dp))
+        Text(stringResource(R.string.stats_range_short,start.format(statDate()),end.format(statDate())),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f),modifier=Modifier.padding(top=4.dp,bottom=4.dp))
     }
     dialog?.let { target ->
         val initial=if(target=="start")draftStart else draftEnd
@@ -842,14 +802,14 @@ private fun StatsPeriodSelector(start:LocalDate,end:LocalDate,custom:Boolean,onP
         DatePickerDialog(onDismissRequest={dialog=null},confirmButton={TextButton(onClick={
             val picked=state.selectedDateMillis?.let{Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()}?:initial
             if(target=="start"){draftStart=picked;dialog="end"}else{draftEnd=picked;if(draftStart<=picked)onCustom(draftStart,picked);dialog=null}
-        }){Text(stringResource(if(target=="start") R.string.stats_next else R.string.stats_apply))}},dismissButton={TextButton(onClick={dialog=null}){Text(stringResource(R.string.stats_cancel))}}){DatePicker(state)}
+        }){Text(stringResource(if(target=="start") R.string.stats_next else R.string.stats_apply))}},dismissButton={TextButton(onClick={dialog=null}){Text(stringResource(R.string.action_cancel))}}){DatePicker(state)}
     }
 }
 
-private fun strength(r: Double): String = when {
-    abs(r) < 0.2 -> "faible"
-    abs(r) < 0.4 -> "modérée"
-    else -> "forte"
+private fun strength(r: Double): Int = when {
+    abs(r) < 0.2 -> R.string.strength_weak
+    abs(r) < 0.4 -> R.string.strength_moderate
+    else -> R.string.strength_strong
 }
 
 /* ---------- Repères (insights) ---------- */
@@ -857,32 +817,34 @@ private fun strength(r: Double): String = when {
 @Composable
 fun InsightsScreen(drinks:List<DrinkEntity>,checkIns:List<CheckInEntity>,settings:LocalSettings) {
     val data=remember(drinks,checkIns,settings){personalAnalytics(drinks,checkIns,settings)}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { PageHeaderLite("Associations personnelles", "Repères")
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { PageHeaderLite(stringResource(R.string.insights_eyebrow), stringResource(R.string.nav_insights))
         val ready = data.optJSONObject("model_readiness") ?: JSONObject()
-        SectionCard("Disponibilité", "Ce que tes données permettent aujourd'hui") {
-            StatRow("Jours disponibles", data.optInt("days_available").toString())
-            StatRow("Journées de dépassement", data.optInt("events_available").toString())
-            StatRow("Analyse descriptive", if (ready.optBoolean("descriptive")) "Prête" else "Pas encore")
-            StatRow("Associations", if (ready.optBoolean("associations")) "Prêtes" else "Pas encore")
-            StatRow("Modèle régularisé", if (ready.optBoolean("regularized_model")) "Prêt" else "Pas encore")
+        val notYet = stringResource(R.string.insights_not_yet)
+        SectionCard(stringResource(R.string.insights_readiness_title), stringResource(R.string.insights_readiness_subtitle)) {
+            StatRow(stringResource(R.string.insights_days_available), data.optInt("days_available").toString())
+            StatRow(stringResource(R.string.insights_events_available), data.optInt("events_available").toString())
+            StatRow(stringResource(R.string.insights_descriptive), if (ready.optBoolean("descriptive")) stringResource(R.string.insights_ready_fem) else notYet)
+            StatRow(stringResource(R.string.insights_associations), if (ready.optBoolean("associations")) stringResource(R.string.insights_ready_fem_plural) else notYet)
+            StatRow(stringResource(R.string.insights_regularized_model), if (ready.optBoolean("regularized_model")) stringResource(R.string.insights_ready_masc) else notYet)
         }
         val associations = data.optJSONArray("associations") ?: JSONArray()
         for (i in 0 until associations.length()) {
             val a = associations.optJSONObject(i) ?: continue
-            SectionCard(a.optString("factor").replaceFirstChar { it.uppercase() }) {
+            val factor = stringResource(INSIGHT_FACTORS[a.optString("factor")] ?: R.string.insights_factor_craving)
+            SectionCard(factor.replaceFirstChar { it.uppercase() }) {
                 val coef = a.numOrNull("coefficient")
                 if (a.optString("status") == "insufficient_data" || coef == null) {
-                    Text("Échantillon insuffisant (${a.optInt("sample_size")} observations).", color = Pine.copy(alpha = .7f))
+                    Text(pluralStringResource(R.plurals.insights_insufficient_sample, a.optInt("sample_size"), a.optInt("sample_size")), color = Pine.copy(alpha = .7f))
                 } else {
-                    Text(a.optString("language"), color = Pine.copy(alpha = .8f))
+                    Text(stringResource(R.string.insights_association_sentence, factor), color = Pine.copy(alpha = .8f))
                     Spacer(Modifier.height(6.dp))
-                    StatRow("Coefficient", "${fmt(coef, 2)} · ${strength(coef)}")
-                    StatRow("Observations", a.optInt("sample_size").toString())
+                    StatRow(stringResource(R.string.insights_coefficient), stringResource(R.string.insights_coefficient_value, fmt(coef, 2), stringResource(strength(coef))))
+                    StatRow(stringResource(R.string.insights_observations), a.optInt("sample_size").toString())
                 }
             }
         }
         Text(
-            data.optString("disclaimer"),
+            stringResource(R.string.insights_disclaimer),
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .6f),
         )
@@ -890,14 +852,19 @@ fun InsightsScreen(drinks:List<DrinkEntity>,checkIns:List<CheckInEntity>,setting
     }
 }
 
+private val INSIGHT_FACTORS = mapOf(
+    "craving" to R.string.insights_factor_craving,
+    "confidence" to R.string.insights_factor_confidence,
+    "stress" to R.string.insights_factor_stress,
+)
+
 private fun personalAnalytics(drinks:List<DrinkEntity>,checkIns:List<CheckInEntity>,settings:LocalSettings):JSONObject{
     val totals=drinks.groupBy{runCatching{trackedDay(it.startedAt,settings.dayStartHour).toString()}.getOrDefault(it.startedAt.take(10))}.mapValues{(_,rows)->rows.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}
     val parsed=checkIns.mapNotNull{runCatching{JSONObject(it.payload)}.getOrNull()};val rows=parsed.mapNotNull{c->totals[c.optString("local_date")]?.let{actual->Triple(c,actual,maxOf(0.0,actual-c.optDouble("planned_grams",0.0)))}}
     fun association(name:String,value:(JSONObject)->Double?):JSONObject{val pairs=rows.mapNotNull{(c,_,excess)->value(c)?.let{it to excess}};val out=JSONObject().put("factor",name).put("sample_size",pairs.size);if(pairs.size<5)return out.put("status","insufficient_data")
-        val ax=pairs.map{it.first}.average();val ay=pairs.map{it.second}.average();val top=pairs.sumOf{(it.first-ax)*(it.second-ay)};val bottom=kotlin.math.sqrt(pairs.sumOf{(it.first-ax)*(it.first-ax)}*pairs.sumOf{(it.second-ay)*(it.second-ay)});return out.put("coefficient",if(bottom==0.0)JSONObject.NULL else top/bottom).put("language","Tes dépassements ont été plus fréquents lorsque $name.")}
+        val ax=pairs.map{it.first}.average();val ay=pairs.map{it.second}.average();val top=pairs.sumOf{(it.first-ax)*(it.second-ay)};val bottom=kotlin.math.sqrt(pairs.sumOf{(it.first-ax)*(it.first-ax)}*pairs.sumOf{(it.second-ay)*(it.second-ay)});return out.put("coefficient",if(bottom==0.0)JSONObject.NULL else top/bottom)}
     val excess=rows.count{it.third>0};return JSONObject().put("days_available",(totals.keys+parsed.map{it.optString("local_date")}).size).put("events_available",excess)
-        .put("associations",JSONArray().put(association("l’envie de boire était plus forte"){it.optDouble("craving")}).put(association("la confiance était plus faible"){10-it.optDouble("confidence")}).put(association("le stress était plus élevé"){if(it.has("stress"))it.optDouble("stress")else null}))
-        .put("disclaimer","Ces résultats décrivent des associations personnelles; ils ne démontrent pas une cause.")
+        .put("associations",JSONArray().put(association("craving"){it.optDouble("craving")}).put(association("confidence"){10-it.optDouble("confidence")}).put(association("stress"){if(it.has("stress"))it.optDouble("stress")else null}))
         .put("model_readiness",JSONObject().put("descriptive",rows.size>=7).put("associations",rows.size>=20&&excess>=5).put("regularized_model",rows.size>=42&&excess>=10).put("temporal_model",rows.size>=90))
 }
 
@@ -905,25 +872,23 @@ private fun personalAnalytics(drinks:List<DrinkEntity>,checkIns:List<CheckInEnti
 
 @Composable
 fun SuccessScreen(drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,checkIns:List<CheckInEntity>,goals:List<GoalEntity>,settings:LocalSettings) {
-    val data=remember(drinks,tracked,checkIns,goals,settings){localSuccess(drinks,tracked,checkIns,goals,settings)}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { PageHeaderLite("Progrès orientés réduction", "Succès")
-        val badges = data.optJSONArray("badges") ?: JSONArray()
-        val unlocked = (0 until badges.length()).count { badges.optJSONObject(it)?.optBoolean("unlocked") == true }
-        SectionCard("Vue d'ensemble") {
-            StatRow("Badges obtenus", "$unlocked / ${badges.length()}")
+    val badges=remember(drinks,tracked,checkIns,goals,settings){localSuccess(drinks,tracked,checkIns,goals,settings)}
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { PageHeaderLite(stringResource(R.string.success_eyebrow), stringResource(R.string.nav_success))
+        val unlocked = badges.count { it.unlocked }
+        SectionCard(stringResource(R.string.success_overview)) {
+            StatRow(stringResource(R.string.success_badges_earned), stringResource(R.string.success_badge_ratio, unlocked, badges.size))
         }
-        for (i in 0 until badges.length()) {
-            val b = badges.optJSONObject(i) ?: continue
-            val progress = (b.numOrNull("progress_percent") ?: 0.0).coerceIn(0.0, 100.0)
-            SectionCard(b.optString("title")) {
-                Text(b.optString("description"), color = Pine.copy(alpha = .78f))
+        badges.forEach { badge ->
+            val progress = badge.progressPercent.coerceIn(0.0, 100.0)
+            SectionCard(badge.title()) {
+                Text(badge.description(), color = Pine.copy(alpha = .78f))
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     progress = { (progress / 100.0).toFloat() },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    if (b.optBoolean("unlocked")) "Obtenu" else "${progress.roundToInt()} %",
+                    if (badge.unlocked) stringResource(R.string.success_unlocked) else stringResource(R.string.percent_value, progress.roundToInt()),
                     style = MaterialTheme.typography.labelMedium, color = Pine,
                 )
             }
@@ -932,44 +897,69 @@ fun SuccessScreen(drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,checkI
     }
 }
 
-private fun localSuccess(drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,checkIns:List<CheckInEntity>,goals:List<GoalEntity>,settings:LocalSettings):JSONObject{
+/**
+ * A badge carries resource ids and a count rather than sentences, so the wording stays in
+ * `strings.xml` and the maths stays here. [plural] marks a description that needs a quantity.
+ */
+private data class Badge(
+    val titleRes: Int, val descRes: Int, val count: Int, val unlocked: Boolean, val progressPercent: Double,
+    val titleCount: Int? = null, val plural: Boolean = true,
+) {
+    @Composable fun title(): String = if (titleCount == null) stringResource(titleRes) else stringResource(titleRes, titleCount)
+    @Composable fun description(): String = if (plural) pluralStringResource(descRes, count, count) else stringResource(descRes, count)
+}
+
+private fun localSuccess(drinks:List<DrinkEntity>,tracked:List<TrackedDayEntity>,checkIns:List<CheckInEntity>,goals:List<GoalEntity>,settings:LocalSettings):List<Badge>{
     val byDay=drinks.groupBy{runCatching{trackedDay(it.startedAt,settings.dayStartHour)}.getOrNull()}.filterKeys{it!=null}.mapKeys{it.key!!}.mapValues{(_,r)->r.sumOf{alcoholGrams(it.volumeMl,it.abvPercent,it.quantity)}}
     val observed=(byDay.keys+tracked.filter{it.sober}.map{LocalDate.parse(it.day)}).toSortedSet();var streak=0;var best=0;var previous:LocalDate?=null;for(day in observed){if(previous?.plusDays(1)!=day)streak=0;if((byDay[day]?:0.0)==0.0){streak++;best=maxOf(best,streak)}else streak=0;previous=day}
     val values=observed.map{byDay[it]?:0.0};val reduction=if(values.size>=60){val previous=values.takeLast(60).take(30).average();val latest=values.takeLast(30).average();if(previous>0)maxOf(0.0,(previous-latest)/previous*100)else 0.0}else 0.0
-    data class Def(val id:String,val title:String,val desc:String,val current:Double,val target:Double,val cat:String)
-    val defs=mutableListOf<Def>();listOf(1 to "Premier pas",3 to "Carnet ouvert",7 to "Une semaine de données",14 to "Deux semaines de données",30 to "Un mois documenté",60 to "Suivi régulier",90 to "Un trimestre documenté",180 to "Six mois de recul",365 to "Une année de données").forEach{(n,t)->defs+=Def("logged_$n",t,"$n journée${if(n>1)"s"else""} renseignée${if(n>1)"s"else""}",observed.size.toDouble(),n.toDouble(),"tracking")}
-    listOf(3,7,14,30).forEach{n->defs+=Def("dry_$n",if(n==3)"Respiration"else if(n==7)"Semaine claire"else if(n==14)"Cap des deux semaines"else"Mois sans alcool","$n jours consécutifs sans alcool",best.toDouble(),n.toDouble(),"streak")}
-    defs+=Def("reduce_10","Tendance inversée","Moyenne mobile 30 jours réduite d’au moins 10 %",reduction,10.0,"reduction");defs+=Def("reduce_25","Virage durable","Moyenne mobile 30 jours réduite d’au moins 25 %",reduction,25.0,"reduction")
-    val months=observed.groupBy{java.time.YearMonth.from(it)}.toSortedMap().values.map{days->days.sumOf{byDay[it]?:0.0}};val monthReduction=if(months.size>=2&&months[months.lastIndex-1]>0)maxOf(0.0,(months[months.lastIndex-1]-months.last())/months[months.lastIndex-1]*100)else 0.0;defs+=Def("month_10","Mois en progrès","Diminution mensuelle d’au moins 10 %",monthReduction,10.0,"calendar")
-    listOf(1 to "Premier check-in",7 to "Prendre du recul",30 to "Repères réguliers",90 to "Habitude de réflexion").forEach{(n,t)->defs+=Def("checkin_$n",t,"$n check-in${if(n>1)"s"else""} personnel${if(n>1)"s"else""} complété${if(n>1)"s"else""}",checkIns.size.toDouble(),n.toDouble(),"checkin")}
-    val achieved=goals.count{it.achieved};listOf(1,3,5,10).forEach{n->defs+=Def("goals_$n",if(n==1)"Premier objectif atteint"else"$n objectifs atteints","$n objectif${if(n>1)"s"else""} personnel${if(n>1)"s"else""} atteint${if(n>1)"s"else""}",achieved.toDouble(),n.toDouble(),"goal")}
-    var weekendStreak=0;val today=LocalDate.now();var monday=today.minusDays(today.dayOfWeek.value-1L).minusWeeks(1);while(monday>=observed.firstOrNull()?.minusDays(6)?:today){val days=(0L..6L).map{monday.plusDays(it)};if(days.all{it in observed}&&days.take(5).all{(byDay[it]?:0.0)==0.0}&&days.takeLast(2).any{(byDay[it]?:0.0)>0})weekendStreak++ else if(weekendStreak>0)break;monday=monday.minusWeeks(1)};listOf(2,4,8,12).forEach{n->defs+=Def("weekend_$n",when(n){2->"Guerrier du week-end · 2 semaines";4->"Guerrier du week-end · 1 mois";8->"Guerrier du week-end · 2 mois";else->"Guerrier du week-end · 3 mois"},"Consommation limitée au samedi et dimanche pendant $n semaines complètes",weekendStreak.toDouble(),n.toDouble(),"weekend")}
-    val badges=JSONArray();defs.forEach{d->badges.put(JSONObject().put("id",d.id).put("title",d.title).put("description",d.desc).put("unlocked",d.current>=d.target).put("current",minOf(d.current,d.target)).put("target",d.target).put("progress_percent",minOf(100.0,d.current/d.target*100)).put("category",d.cat))};return JSONObject().put("badges",badges)
+    val defs=mutableListOf<Badge>()
+    fun badge(titleRes:Int,descRes:Int,n:Int,current:Double,titleCount:Int?=null,plural:Boolean=true)=
+        Badge(titleRes,descRes,n,current>=n,minOf(100.0,current/n*100),titleCount,plural)
+    listOf(1 to R.string.badge_logged_1,3 to R.string.badge_logged_3,7 to R.string.badge_logged_7,14 to R.string.badge_logged_14,
+        30 to R.string.badge_logged_30,60 to R.string.badge_logged_60,90 to R.string.badge_logged_90,180 to R.string.badge_logged_180,
+        365 to R.string.badge_logged_365).forEach{(n,t)->defs+=badge(t,R.plurals.badge_logged_desc,n,observed.size.toDouble())}
+    listOf(3 to R.string.badge_dry_3,7 to R.string.badge_dry_7,14 to R.string.badge_dry_14,30 to R.string.badge_dry_30)
+        .forEach{(n,t)->defs+=badge(t,R.plurals.badge_dry_desc,n,best.toDouble())}
+    defs+=badge(R.string.badge_reduce_10,R.string.badge_reduce_desc,10,reduction,plural=false)
+    defs+=badge(R.string.badge_reduce_25,R.string.badge_reduce_desc,25,reduction,plural=false)
+    val months=observed.groupBy{java.time.YearMonth.from(it)}.toSortedMap().values.map{days->days.sumOf{byDay[it]?:0.0}};val monthReduction=if(months.size>=2&&months[months.lastIndex-1]>0)maxOf(0.0,(months[months.lastIndex-1]-months.last())/months[months.lastIndex-1]*100)else 0.0
+    defs+=badge(R.string.badge_month_10,R.string.badge_month_desc,10,monthReduction,plural=false)
+    listOf(1 to R.string.badge_checkin_1,7 to R.string.badge_checkin_7,30 to R.string.badge_checkin_30,90 to R.string.badge_checkin_90)
+        .forEach{(n,t)->defs+=badge(t,R.plurals.badge_checkin_desc,n,checkIns.size.toDouble())}
+    val achieved=goals.count{it.achieved}
+    listOf(1,3,5,10).forEach{n->defs+=badge(if(n==1)R.string.badge_goals_1 else R.string.badge_goals_n,R.plurals.badge_goals_desc,n,achieved.toDouble(),titleCount=if(n==1)null else n)}
+    var weekendStreak=0;val today=LocalDate.now();var monday=today.minusDays(today.dayOfWeek.value-1L).minusWeeks(1);while(monday>=observed.firstOrNull()?.minusDays(6)?:today){val days=(0L..6L).map{monday.plusDays(it)};if(days.all{it in observed}&&days.take(5).all{(byDay[it]?:0.0)==0.0}&&days.takeLast(2).any{(byDay[it]?:0.0)>0})weekendStreak++ else if(weekendStreak>0)break;monday=monday.minusWeeks(1)};listOf(2 to R.string.badge_weekend_2,4 to R.string.badge_weekend_4,8 to R.string.badge_weekend_8,12 to R.string.badge_weekend_12)
+        .forEach{(n,t)->defs+=badge(t,R.string.badge_weekend_desc,n,weekendStreak.toDouble(),plural=false)}
+    return defs
 }
 
 /* ---------- Objectifs ---------- */
 
 private val GOAL_KINDS = listOf(
-    "max_moving_7_grams" to "Moyenne mobile 7 j en grammes (max)",
-    "max_grams_week" to "Grammes / semaine (max)",
-    "max_standards" to "Standards / semaine (max)",
-    "min_alcohol_free_days" to "Jours sans alcool / semaine (min)",
-    "max_drinking_days" to "Jours avec alcool / semaine (max)",
-    "max_grams_session" to "Grammes / occasion (max)",
-    "monthly_reduction" to "Réduction mensuelle (%)",
+    "max_moving_7_grams" to R.string.goal_kind_max_moving_7_grams,
+    "max_grams_week" to R.string.goal_kind_max_grams_week,
+    "max_standards" to R.string.goal_kind_max_standards,
+    "min_alcohol_free_days" to R.string.goal_kind_min_alcohol_free_days,
+    "max_drinking_days" to R.string.goal_kind_max_drinking_days,
+    "max_grams_session" to R.string.goal_kind_max_grams_session,
+    "monthly_reduction" to R.string.goal_kind_monthly_reduction,
 )
 private val GOAL_LABELS = GOAL_KINDS.toMap()
 
+@Composable private fun goalKindLabel(kind: String): String = GOAL_LABELS[kind]?.let { stringResource(it) } ?: kind
+
+@Composable
 private fun durationText(g: JSONObject): String = when (g.optString("temporal_mode")) {
     "deadline" -> {
-        val due = g.optString("due_date").takeIf { it.isNotBlank() && it != "null" }
+        val due = g.optString("due_date").takeIf { it.isNotBlank() && it != "null" } ?: "?"
         val left = if (g.isNull("days_remaining")) null else g.optInt("days_remaining")
-        "À tenir jusqu’au ${due ?: "?"}" + (left?.let { " (dans $it j)" } ?: "")
+        if (left == null) stringResource(R.string.goal_deadline, due) else stringResource(R.string.goal_deadline_with_days, due, left)
     }
     else -> {
-        val weeks = if (g.isNull("consecutive_weeks")) null else g.optInt("consecutive_weeks")
+        val weeks = (if (g.isNull("consecutive_weeks")) null else g.optInt("consecutive_weeks"))?.toString() ?: "?"
         val done = if (g.isNull("consecutive_weeks_achieved")) null else g.optInt("consecutive_weeks_achieved")
-        "À maintenir ${weeks ?: "?"} semaines consécutives" + (done?.let { " · ${it}/${weeks ?: "?"} atteintes" } ?: "")
+        if (done == null) stringResource(R.string.goal_weeks, weeks) else stringResource(R.string.goal_weeks_with_progress, weeks, done, weeks)
     }
 }
 
@@ -983,32 +973,32 @@ fun GoalsScreen(repository:SyncRepository,localGoals:List<GoalEntity>,drinks:Lis
     LaunchedEffect(goals.toString()){for(i in 0 until goals.length()){val g=goals.getJSONObject(i);val reached=if(g.optString("temporal_mode")=="consecutive_weeks")g.optInt("consecutive_weeks_achieved")>=g.optInt("consecutive_weeks",1)else g.optBoolean("on_track");if(reached)repository.markGoalAchieved(g.getString("client_id"))}}
     PullToRefreshBox(isRefreshing = false, onRefresh = onSync, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            PageHeaderLite("Suivi", "Objectifs")
-            Button(onClick = { adding = true }, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) { Text("Ajouter un objectif") }
+            PageHeaderLite(stringResource(R.string.goals_eyebrow), stringResource(R.string.nav_goals))
+            Button(onClick = { adding = true }, modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth()) { Text(stringResource(R.string.goals_add)) }
             error?.let { Text(it, Modifier.padding(20.dp), color = Pine.copy(alpha = .7f)) }
             val list = goals
-            if (list.length() == 0) SectionCard("Aucun objectif") {
-                Text("Ajoute un objectif pour suivre ta progression semaine après semaine.", color = Pine.copy(alpha = .7f))
+            if (list.length() == 0) SectionCard(stringResource(R.string.goals_none_title)) {
+                Text(stringResource(R.string.goals_none_body), color = Pine.copy(alpha = .7f))
             }
             for (i in 0 until list.length()) {
                 val g = list.optJSONObject(i) ?: continue
-                SectionCard(GOAL_LABELS[g.optString("kind")] ?: g.optString("kind")) {
-                    StatRow("Cible", fmt(g.numOrNull("target"), 1))
-                    StatRow("Actuel", fmt(g.numOrNull("current"), 1))
+                SectionCard(goalKindLabel(g.optString("kind"))) {
+                    StatRow(stringResource(R.string.goals_target), fmt(g.numOrNull("target"), 1))
+                    StatRow(stringResource(R.string.goals_current), fmt(g.numOrNull("current"), 1))
                     val onTrack = if (g.isNull("on_track")) null else g.optBoolean("on_track")
-                    StatRow("Statut", when (onTrack) { true -> "Sur la bonne voie"; false -> "À ajuster"; else -> "—" })
+                    StatRow(stringResource(R.string.goals_status), when (onTrack) { true -> stringResource(R.string.goals_on_track); false -> stringResource(R.string.goals_off_track); else -> "—" })
                     Text(durationText(g), style = MaterialTheme.typography.bodySmall, color = Pine.copy(alpha = .7f))
                     g.numOrNull("progress_percent")?.let { p ->
                         Spacer(Modifier.height(6.dp))
                         LinearProgressIndicator(progress = { (p / 100.0).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     }
-                    if (!g.optBoolean("active")) Text("En pause", style = MaterialTheme.typography.labelMedium, color = Amber)
+                    if (!g.optBoolean("active")) Text(stringResource(R.string.goals_paused), style = MaterialTheme.typography.labelMedium, color = Amber)
                     TextButton(onClick = {
                         scope.launch {
                             runCatching { repository.deleteGoal(g.getString("client_id")) }
                                 .onSuccess { onSync() }.onFailure { error = it.message }
                         }
-                    }) { Text("Retirer", color = Color(0xFFD9534F)) }
+                    }) { Text(stringResource(R.string.goals_remove), color = Color(0xFFD9534F)) }
                 }
             }
             Spacer(Modifier.height(28.dp))
@@ -1042,23 +1032,23 @@ private fun GoalDialog(onDismiss: () -> Unit, onCreate: (JSONObject) -> Unit) {
     val numeric = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Nouvel objectif") },
+        title = { Text(stringResource(R.string.goals_new)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box {
-                    OutlinedTextField(GOAL_LABELS[kind] ?: kind, {}, readOnly = true, label = { Text("Type") }, modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = { TextButton(onClick = { kindOpen = true }) { Text("Changer") } })
+                    OutlinedTextField(goalKindLabel(kind), {}, readOnly = true, label = { Text(stringResource(R.string.goals_type)) }, modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = { TextButton(onClick = { kindOpen = true }) { Text(stringResource(R.string.action_change)) } })
                     DropdownMenu(expanded = kindOpen, onDismissRequest = { kindOpen = false }) {
-                        GOAL_KINDS.forEach { (k, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { kind = k; kindOpen = false }) }
+                        GOAL_KINDS.forEach { (k, label) -> DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = { kind = k; kindOpen = false }) }
                     }
                 }
-                OutlinedTextField(target, { target = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, label = { Text("Cible") }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(target, { target = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, label = { Text(stringResource(R.string.goals_target)) }, singleLine = true, keyboardOptions = numeric, modifier = Modifier.fillMaxWidth())
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Objectif avec échéance", Modifier.weight(1f))
+                    Text(stringResource(R.string.goals_deadline_switch), Modifier.weight(1f))
                     Switch(checked = deadlineMode, onCheckedChange = { deadlineMode = it })
                 }
-                if (deadlineMode) OutlinedTextField(dueDate, { dueDate = it }, label = { Text("Échéance (AAAA-MM-JJ)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                else OutlinedTextField(weeks, { weeks = it.filter(Char::isDigit) }, label = { Text("Semaines consécutives à tenir") }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                if (deadlineMode) OutlinedTextField(dueDate, { dueDate = it }, label = { Text(stringResource(R.string.goals_due_date_label)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                else OutlinedTextField(weeks, { weeks = it.filter(Char::isDigit) }, label = { Text(stringResource(R.string.goals_weeks_label)) }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -1067,8 +1057,8 @@ private fun GoalDialog(onDismiss: () -> Unit, onCreate: (JSONObject) -> Unit) {
                 if (deadlineMode) payload.put("temporal_mode", "deadline").put("due_date", dueDate.trim())
                 else payload.put("temporal_mode", "consecutive_weeks").put("consecutive_weeks", weeks.toIntOrNull()?.coerceAtLeast(1) ?: 1)
                 onCreate(payload)
-            }) { Text("Créer") }
+            }) { Text(stringResource(R.string.goals_create)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }

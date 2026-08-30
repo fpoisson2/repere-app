@@ -26,9 +26,9 @@ class OAuthRedirectActivity : ComponentActivity() {
         val data = intent?.data
         lifecycleScope.launch {
             val result = if (data != null) OAuthClient.complete(this@OAuthRedirectActivity, data)
-                else Result.failure(IllegalStateException("Redirection OAuth vide"))
+                else Result.failure(IllegalStateException(getString(R.string.oauth_empty_redirect)))
             result.exceptionOrNull()?.let {
-                Toast.makeText(this@OAuthRedirectActivity, it.message ?: "Connexion impossible", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@OAuthRedirectActivity, it.message ?: getString(R.string.error_connection_failed), Toast.LENGTH_LONG).show()
             }
             startActivity(
                 Intent(this@OAuthRedirectActivity, MainActivity::class.java)

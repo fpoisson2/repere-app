@@ -37,9 +37,12 @@ class SyncRepository(context: Context) {
     suspend fun ensureOfflineDefaults(){
         if(dao.settings()==null)dao.putSettings(LocalSettings())
         if(dao.presetCount()>0)return
+        fun text(id:Int)=appContext.getString(id)
         dao.putPresets(listOf(
-            PresetEntity(-1,"Bière 333 ml","bière",333.0,5.0),PresetEntity(-2,"Bière 473 ml","bière",473.0,5.0),
-            PresetEntity(-3,"Vin 150 ml","vin",150.0,12.0),PresetEntity(-4,"Spiritueux 43 ml","spiritueux",43.0,40.0)
+            PresetEntity(-1,text(R.string.default_preset_beer_333),text(R.string.default_preset_type_beer),333.0,5.0),
+            PresetEntity(-2,text(R.string.default_preset_beer_473),text(R.string.default_preset_type_beer),473.0,5.0),
+            PresetEntity(-3,text(R.string.default_preset_wine_150),text(R.string.default_preset_type_wine),150.0,12.0),
+            PresetEntity(-4,text(R.string.default_preset_spirits_43),text(R.string.default_preset_type_spirits),43.0,40.0)
         ))
     }
 
@@ -77,7 +80,7 @@ class SyncRepository(context: Context) {
 
     suspend fun startFromWear(operationId:String,volumeMl:Double,abvPercent:Double,startedAt:String) {
         val clientId="wear:$operationId";if(dao.findByClientId(clientId)!=null)return
-        dao.putDrink(DrinkEntity(clientId,null,"Consommation Wear OS","autre",volumeMl,abvPercent,1,
+        dao.putDrink(DrinkEntity(clientId,null,appContext.getString(R.string.wear_drink_name),"autre",volumeMl,abvPercent,1,
             startedAt,0,null,true,true,false,operationId))
     }
 
@@ -235,7 +238,7 @@ class SyncRepository(context: Context) {
         connection.setRequestProperty("Authorization","Bearer $token");connection.setRequestProperty("Content-Type","application/json")
         if(body!=null){connection.doOutput=true;connection.outputStream.use{it.write(body.toString().toByteArray())}}
         val text=(if(connection.responseCode in 200..299)connection.inputStream else connection.errorStream).bufferedReader().readText()
-        if(connection.responseCode !in 200..299)error(runCatching{JSONObject(text).optString("detail")}.getOrDefault("Erreur ${connection.responseCode}"))
+        if(connection.responseCode !in 200..299)error(runCatching{JSONObject(text).optString("detail")}.getOrDefault(appContext.getString(R.string.error_http,connection.responseCode)))
         JSONObject(text)
     }
 
@@ -243,7 +246,7 @@ class SyncRepository(context: Context) {
         val connection=URL(server+path).openConnection() as HttpURLConnection;connection.requestMethod=method;connection.connectTimeout=10000;connection.readTimeout=15000
         connection.setRequestProperty("Authorization","Bearer $token");connection.setRequestProperty("Content-Type","application/json")
         if(body!=null&&method!="GET"){connection.doOutput=true;connection.outputStream.use{it.write(body.toString().toByteArray())}}
-        val code=connection.responseCode;if(code !in 200..299)error("Erreur $code");connection.disconnect()
+        val code=connection.responseCode;if(code !in 200..299)error(appContext.getString(R.string.error_http,code));connection.disconnect()
     }
 
 
@@ -252,7 +255,7 @@ class SyncRepository(context: Context) {
         connection.requestMethod="GET";connection.connectTimeout=10000;connection.readTimeout=15000
         connection.setRequestProperty("Authorization","Bearer $token")
         val text=(if(connection.responseCode in 200..299)connection.inputStream else connection.errorStream).bufferedReader().readText()
-        if(connection.responseCode !in 200..299)error("Erreur ${connection.responseCode}")
+        if(connection.responseCode !in 200..299)error(appContext.getString(R.string.error_http,connection.responseCode))
         JSONArray(text)
     }
 }

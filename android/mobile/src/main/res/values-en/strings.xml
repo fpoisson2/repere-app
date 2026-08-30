@@ -74,7 +74,6 @@
     <string name="stats_preset_custom">Custom</string>
     <string name="stats_next">Next</string>
     <string name="stats_apply">Apply</string>
-    <string name="stats_cancel">Cancel</string>
     <string name="stats_observed_days">Observed days</string>
     <string name="stats_alcohol_free_days">Alcohol-free days</string>
     <string name="stats_days_without_data">Days without data</string>
@@ -206,4 +205,380 @@
         <item>0 standards</item><item>≤ 1 standard</item><item>1 to 2 standards</item>
         <item>2 to 4 standards</item><item>More than 4 standards</item>
     </string-array>
+
+    <!-- Common actions -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_ok">OK</string>
+    <string name="action_save">Save</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_add">Add</string>
+    <string name="action_change">Change</string>
+    <string name="action_choose">Choose</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_import">Import</string>
+    <string name="percent_value">%1$d %%</string>
+
+    <!-- Insights -->
+    <string name="insights_eyebrow">Personal associations</string>
+    <string name="insights_readiness_title">Availability</string>
+    <string name="insights_readiness_subtitle">What your data supports today</string>
+    <string name="insights_days_available">Days available</string>
+    <string name="insights_events_available">Days over plan</string>
+    <string name="insights_descriptive">Descriptive analysis</string>
+    <string name="insights_associations">Associations</string>
+    <string name="insights_regularized_model">Regularized model</string>
+    <string name="insights_ready_masc">Ready</string>
+    <string name="insights_ready_fem">Ready</string>
+    <string name="insights_ready_fem_plural">Ready</string>
+    <string name="insights_not_yet">Not yet</string>
+    <plurals name="insights_insufficient_sample">
+        <item quantity="one">Sample too small (%1$d observation).</item>
+        <item quantity="other">Sample too small (%1$d observations).</item>
+    </plurals>
+    <string name="insights_coefficient">Coefficient</string>
+    <string name="insights_coefficient_value">%1$s · %2$s</string>
+    <string name="insights_observations">Observations</string>
+    <string name="insights_disclaimer">These results describe personal associations; they do not establish a cause.</string>
+    <string name="insights_association_sentence">You went over plan more often when %1$s.</string>
+    <string name="insights_factor_craving">the urge to drink was stronger</string>
+    <string name="insights_factor_confidence">confidence was lower</string>
+    <string name="insights_factor_stress">stress was higher</string>
+    <string name="strength_weak">weak</string>
+    <string name="strength_moderate">moderate</string>
+    <string name="strength_strong">strong</string>
+
+    <!-- Achievements -->
+    <string name="success_eyebrow">Reduction-focused progress</string>
+    <string name="success_overview">Overview</string>
+    <string name="success_badges_earned">Badges earned</string>
+    <string name="success_badge_ratio">%1$d / %2$d</string>
+    <string name="success_unlocked">Earned</string>
+    <string name="badge_logged_1">First step</string>
+    <string name="badge_logged_3">Logbook open</string>
+    <string name="badge_logged_7">One week of data</string>
+    <string name="badge_logged_14">Two weeks of data</string>
+    <string name="badge_logged_30">A documented month</string>
+    <string name="badge_logged_60">Steady tracking</string>
+    <string name="badge_logged_90">A documented quarter</string>
+    <string name="badge_logged_180">Six months of hindsight</string>
+    <string name="badge_logged_365">A year of data</string>
+    <string name="badge_dry_3">Breathing room</string>
+    <string name="badge_dry_7">Clear week</string>
+    <string name="badge_dry_14">Two-week mark</string>
+    <string name="badge_dry_30">Alcohol-free month</string>
+    <string name="badge_reduce_10">Trend reversed</string>
+    <string name="badge_reduce_25">Lasting turn</string>
+    <string name="badge_month_10">Month of progress</string>
+    <string name="badge_checkin_1">First check-in</string>
+    <string name="badge_checkin_7">Stepping back</string>
+    <string name="badge_checkin_30">Regular check-ins</string>
+    <string name="badge_checkin_90">Habit of reflection</string>
+    <string name="badge_goals_1">First goal reached</string>
+    <string name="badge_goals_n">%1$d goals reached</string>
+    <string name="badge_weekend_2">Weekend warrior · 2 weeks</string>
+    <string name="badge_weekend_4">Weekend warrior · 1 month</string>
+    <string name="badge_weekend_8">Weekend warrior · 2 months</string>
+    <string name="badge_weekend_12">Weekend warrior · 3 months</string>
+    <string name="badge_reduce_desc">30-day moving average down by at least %1$d %%</string>
+    <string name="badge_month_desc">Monthly decrease of at least %1$d %%</string>
+    <string name="badge_weekend_desc">Drinking limited to Saturday and Sunday for %1$d full weeks</string>
+    <plurals name="badge_logged_desc">
+        <item quantity="one">%1$d day logged</item>
+        <item quantity="other">%1$d days logged</item>
+    </plurals>
+    <plurals name="badge_dry_desc">
+        <item quantity="one">%1$d consecutive alcohol-free day</item>
+        <item quantity="other">%1$d consecutive alcohol-free days</item>
+    </plurals>
+    <plurals name="badge_checkin_desc">
+        <item quantity="one">%1$d personal check-in completed</item>
+        <item quantity="other">%1$d personal check-ins completed</item>
+    </plurals>
+    <plurals name="badge_goals_desc">
+        <item quantity="one">%1$d personal goal reached</item>
+        <item quantity="other">%1$d personal goals reached</item>
+    </plurals>
+
+    <!-- Goals -->
+    <string name="goals_eyebrow">Tracking</string>
+    <string name="goals_add">Add a goal</string>
+    <string name="goals_none_title">No goal</string>
+    <string name="goals_none_body">Add a goal to follow your progress week after week.</string>
+    <string name="goals_target">Target</string>
+    <string name="goals_current">Current</string>
+    <string name="goals_status">Status</string>
+    <string name="goals_on_track">On track</string>
+    <string name="goals_off_track">Needs adjusting</string>
+    <string name="goals_paused">Paused</string>
+    <string name="goals_remove">Remove</string>
+    <string name="goals_new">New goal</string>
+    <string name="goals_type">Type</string>
+    <string name="goals_deadline_switch">Goal with a deadline</string>
+    <string name="goals_due_date_label">Deadline (YYYY-MM-DD)</string>
+    <string name="goals_weeks_label">Consecutive weeks to hold</string>
+    <string name="goals_create">Create</string>
+    <string name="goal_kind_max_moving_7_grams">7-day moving average in grams (max)</string>
+    <string name="goal_kind_max_grams_week">Grams / week (max)</string>
+    <string name="goal_kind_max_standards">Standards / week (max)</string>
+    <string name="goal_kind_min_alcohol_free_days">Alcohol-free days / week (min)</string>
+    <string name="goal_kind_max_drinking_days">Drinking days / week (max)</string>
+    <string name="goal_kind_max_grams_session">Grams / occasion (max)</string>
+    <string name="goal_kind_monthly_reduction">Monthly reduction (%%)</string>
+    <string name="goal_deadline">Hold until %1$s</string>
+    <string name="goal_deadline_with_days">Hold until %1$s (in %2$d d)</string>
+    <string name="goal_weeks">Hold for %1$s consecutive weeks</string>
+    <string name="goal_weeks_with_progress">Hold for %1$s consecutive weeks · %2$d/%3$s reached</string>
+
+    <!-- Units -->
+    <string name="unit_ml">ml</string>
+    <string name="unit_oz">oz</string>
+    <string name="unit_percent">%%</string>
+    <string name="unit_minutes">min</string>
+    <string name="unit_gl">g/L</string>
+
+    <!-- Sync status -->
+    <string name="status_offline_ready">Ready offline</string>
+    <string name="status_local_only">Local only</string>
+    <string name="status_syncing">Syncing…</string>
+    <string name="status_up_to_date">Up to date</string>
+    <string name="status_offline_kept">Offline · your entries are kept</string>
+    <string name="status_pending_send">Waiting to be sent</string>
+    <string name="status_kept_locally">Kept locally</string>
+    <string name="status_pending_edit">Edit pending</string>
+    <string name="status_pending_delete">Deletion pending</string>
+    <string name="status_sync_enabled">Sync enabled</string>
+
+    <!-- Now -->
+    <string name="day_previous">Previous day</string>
+    <string name="day_next">Next day</string>
+    <string name="today">Today</string>
+    <string name="today_caps">TODAY</string>
+    <string name="checkin">Check-in</string>
+    <string name="checkin_done">Check-in done</string>
+    <string name="checkin_saved">Check-in saved</string>
+    <string name="checkin_not_sent">Check-in not sent</string>
+    <string name="quick_add">Quick add</string>
+    <string name="favourite_new">New favourite</string>
+    <string name="favourite_long_press">Long-press a favourite to edit it.</string>
+    <string name="favourites_empty">Sign in once to download your favourites.</string>
+    <string name="preset_summary">%1$d ml · %2$s %%</string>
+    <string name="drinks_title">Drinks</string>
+    <string name="drink_deleted">Drink deleted</string>
+    <string name="day_marked_sober">Day marked alcohol-free.</string>
+    <string name="sober_day_cancel">Undo alcohol-free day</string>
+    <string name="sober_day_cancelled">Alcohol-free day undone</string>
+    <string name="sober_day_cancel_failed">Could not undo</string>
+    <string name="day_no_drinks">No drink on this day.</string>
+    <string name="sober_day_mark">Mark this day alcohol-free</string>
+    <string name="sober_day_save_failed">Could not save</string>
+    <string name="sober_day_saved_title">Alcohol-free day saved</string>
+    <string name="sober_day_saved_body">Nicely done. This day now counts as an alcohol-free day.</string>
+    <string name="guideline_within">Low-risk guideline: %1$s std/day</string>
+    <string name="guideline_over">Above the low-risk guideline (%1$s std/day)</string>
+    <plurals name="canadian_standards_label">
+        <item quantity="one">Canadian standard</item>
+        <item quantity="other">Canadian standards</item>
+    </plurals>
+
+    <!-- Drink -->
+    <string name="drink_default_name">Drink</string>
+    <string name="drink_new">New drink</string>
+    <string name="drink_edit">Edit drink</string>
+    <string name="field_name">Name</string>
+    <string name="field_volume">Volume</string>
+    <string name="field_alcohol">Alcohol</string>
+    <string name="field_quantity">Quantity</string>
+    <string name="field_date">Date</string>
+    <string name="field_time">Time</string>
+    <string name="field_duration">Duration</string>
+    <string name="action_decrease">Decrease</string>
+    <string name="action_increase">Increase</string>
+    <plurals name="live_standards">
+        <item quantity="one">≈ %1$s standard drink</item>
+        <item quantity="other">≈ %1$s standard drinks</item>
+    </plurals>
+    <string name="drink_row_summary">%1$s · %2$d ml · %3$s %% · ×%4$d</string>
+
+    <!-- Favourites -->
+    <string name="preset_new">New favourite</string>
+    <string name="preset_edit">Edit favourite</string>
+    <string name="field_type">Type (beer, wine…)</string>
+    <string name="field_volume_ml">Volume (ml)</string>
+    <string name="field_alcohol_percent">Alcohol (%%)</string>
+    <string name="preset_delete">Delete this favourite</string>
+    <string name="delete_failed">Delete failed</string>
+    <string name="save_failed">Save failed</string>
+
+    <!-- Body profile -->
+    <string name="body_profile_title">BAC — body profile</string>
+    <string name="body_profile_subtitle">Sex, weight and height feed the blood alcohol estimate (Watson formula).</string>
+    <string name="field_sex">Sex</string>
+    <string name="sex_unspecified">Not specified</string>
+    <string name="sex_female">Female</string>
+    <string name="sex_male">Male</string>
+    <string name="field_weight_kg">Weight (kg)</string>
+    <string name="field_height_cm">Height (cm)</string>
+    <string name="distribution_factor">Computed distribution factor: %1$s</string>
+    <string name="weight_required">Weight is required to estimate blood alcohol</string>
+    <string name="profile_saved_device">Profile saved on this device</string>
+    <string name="profile_saved_scheduled">Profile saved locally · backup scheduled</string>
+    <string name="profile_saved_pending">Profile saved on this device · sync pending</string>
+    <string name="save_profile">Save profile</string>
+
+    <!-- Blood alcohol -->
+    <string name="bac_estimated_caps">ESTIMATED BLOOD ALCOHOL</string>
+    <string name="bac_profile_missing_offline">Set up your body profile in Settings to estimate blood alcohol offline.</string>
+    <string name="bac_profile_missing">Set up your body profile in Settings.</string>
+    <string name="bac_at_zero">At zero · estimated peak %1$s g/L</string>
+    <string name="bac_trend">Trend: %1$s · peak %2$s g/L</string>
+    <string name="bac_back_to_zero">%1$s · back to 0 around %2$s</string>
+    <string name="bac_trend_up">rising</string>
+    <string name="bac_trend_down">falling</string>
+    <string name="bac_trend_stable">steady</string>
+    <string name="bac_now">now</string>
+    <string name="bac_disclaimer_live">A mathematical estimate — never an indicator of fitness to drive.</string>
+    <string name="bac_disclaimer">A mathematical estimate, never permission to drive.</string>
+    <string name="bac_peak_title">Estimated peak blood alcohol</string>
+    <string name="bac_peak_value">%1$s g/L</string>
+
+    <!-- Check-in card -->
+    <string name="checkin_none_today">No check-in today.</string>
+    <string name="checkin_today_caps">TODAY’S CHECK-IN</string>
+    <string name="checkin_day_caps">CHECK-IN FOR THIS DAY</string>
+    <string name="checkin_scores">Craving %1$d/10 · confidence %2$d/10</string>
+    <string name="checkin_scores_with_stress">Craving %1$d/10 · confidence %2$d/10 · stress %3$d/10</string>
+    <string name="checkin_daily_target">Today’s target: %1$s standard drinks</string>
+    <string name="checkin_post_onset">Filled in after the first drink</string>
+
+    <!-- Check-in -->
+    <string name="checkin_planned_label">Standard drinks planned today</string>
+    <string name="checkin_craving">Urge to drink</string>
+    <string name="checkin_confidence">Confidence in keeping my intention</string>
+    <string name="checkin_stress">Stress</string>
+    <string name="checkin_social_context">Social context</string>
+    <string name="social_alone">Alone</string>
+    <string name="social_partner_family">Partner / family</string>
+    <string name="social_friends">Friends</string>
+    <string name="social_colleagues_event">Colleagues / event</string>
+    <string name="checkin_others_drinking">Are other people drinking?</string>
+    <string name="answer_no">No</string>
+    <string name="answer_yes">Yes</string>
+    <string name="answer_unknown">I don’t know</string>
+    <string name="checkin_alcohol_available">Alcohol is available</string>
+    <string name="checkin_notes">Note (optional)</string>
+    <string name="slider_value">%1$s: %2$d</string>
+
+    <!-- History -->
+    <string name="history_eyebrow">Local copy</string>
+    <string name="history_empty">History appears after the first sync.</string>
+
+    <!-- Health -->
+    <string name="health_eyebrow">Selected data</string>
+    <string name="health_choose_precisely">Pick exactly which data you share.</string>
+    <string name="health_unavailable">Health Connect is not available on this device.</string>
+    <string name="health_control_title">Your data stays under your control</string>
+    <string name="health_control_body">Repère keeps daily summaries on this phone, never the raw measurements. A missing value does not become zero.</string>
+    <string name="health_available_data">Available data</string>
+    <string name="health_long_sleep">Sleep</string>
+    <string name="health_long_steps">Steps</string>
+    <string name="health_long_exercise">Exercise</string>
+    <string name="health_long_heart_rate">Heart rate</string>
+    <string name="health_long_resting_heart_rate">Resting heart rate</string>
+    <string name="health_long_hrv">Heart rate variability</string>
+    <string name="health_allowed">Allowed</string>
+    <string name="health_not_shared">Not shared</string>
+    <string name="health_choose_permissions">Choose permissions</string>
+    <string name="health_background_title">Automatic sync</string>
+    <string name="health_background_subtitle">Recent summaries, about twice a day</string>
+    <string name="health_background_enabled">Background health sync enabled.</string>
+    <string name="health_background_denied">Background sync not allowed.</string>
+    <string name="health_background_disabled">Automatic sync disabled.</string>
+    <string name="health_import_range">Range to import</string>
+    <string name="health_history_note">Beyond 30 days, Health Connect requires the “history” permission (requested along with the others).</string>
+    <string name="health_reading_days">Reading the last %1$d days…</string>
+    <string name="health_import_failed">Import failed</string>
+    <string name="health_importing">Importing…</string>
+    <plurals name="health_permissions_granted">
+        <item quantity="one">%1$d permission granted.</item>
+        <item quantity="other">%1$d permissions granted.</item>
+    </plurals>
+    <plurals name="health_local_summaries">
+        <item quantity="one">%1$d summary in the local copy</item>
+        <item quantity="other">%1$d summaries in the local copy</item>
+    </plurals>
+    <plurals name="health_import_stored">
+        <item quantity="one">%1$d summary kept locally.</item>
+        <item quantity="other">%1$d summaries kept locally.</item>
+    </plurals>
+    <plurals name="health_import_stored_synced">
+        <item quantity="one">%1$d summary kept locally and synced.</item>
+        <item quantity="other">%1$d summaries kept locally and synced.</item>
+    </plurals>
+
+    <!-- Settings -->
+    <string name="settings_eyebrow">Phone and watch</string>
+    <string name="settings_server_address">Server address</string>
+    <string name="settings_local_first">Repère runs entirely on this phone. Connecting to a server is optional.</string>
+    <string name="settings_sign_in">Sign in to Repère</string>
+    <string name="settings_oauth_note">A secure page will open to authorize the app (OAuth 2.0 + PKCE).</string>
+    <string name="settings_device_paired">Device paired</string>
+    <string name="settings_offline_active">The offline copy is active.</string>
+    <string name="settings_sync_with_server">Sync with the server</string>
+    <string name="settings_changes_sent">Changes will be sent</string>
+    <string name="settings_data_stays">Data stays on this device</string>
+    <string name="settings_sync_watch">Sync the watch</string>
+    <string name="settings_watch_configured">Configuration sent to the watch</string>
+    <string name="settings_sign_out">Sign out</string>
+    <string name="settings_signed_out">Signed out</string>
+    <string name="settings_units_title">Units of measure</string>
+    <string name="settings_units_note">The number of grams of pure alcohol in a “standard drink” varies by country. Adjust it if you prefer another reference.</string>
+    <string name="settings_grams_per_standard">Grams per standard drink</string>
+    <string name="settings_grams_range">Between 4 and 30 g</string>
+    <string name="settings_volume_unit">Volume unit</string>
+    <string name="settings_millilitres">Millilitres (ml)</string>
+    <string name="settings_fluid_ounces">Fluid ounces (oz)</string>
+    <string name="settings_units_saved">Units of measure saved</string>
+    <string name="settings_save_units">Save units of measure</string>
+    <string name="settings_app_section">App</string>
+    <string name="settings_reminder">Check-in reminder</string>
+    <string name="settings_reminder_subtitle">1 h 30 before your usual drinking time</string>
+    <string name="settings_reminder_on">Check-in reminder enabled</string>
+    <string name="settings_reminder_off">Check-in reminder disabled</string>
+    <string name="settings_notification_denied">Notification permission denied</string>
+    <string name="settings_health_data">Health data (Health Connect)</string>
+    <string name="settings_full_history">Full history</string>
+    <string name="country_canada">Canada</string>
+    <string name="country_usa">USA</string>
+    <string name="country_uk">UK</string>
+    <string name="country_australia">Australia</string>
+    <string name="standard_chip">%1$s · %2$s g</string>
+
+    <!-- Reminder -->
+    <string name="reminder_title">Time for a check-in?</string>
+    <string name="reminder_text">Your usual time is coming up. Take a moment to note your intention.</string>
+    <string name="reminder_channel_name">Check-in reminder</string>
+    <string name="reminder_channel_description">Reminder before your usual drinking time</string>
+
+    <!-- Health Connect rationale -->
+    <string name="rationale_title">Repère and your health data</string>
+    <string name="rationale_body">Repère lines your drinks up against daily summaries such as sleep, steps, exercise and heart trends, to show your own associations over time.</string>
+    <string name="rationale_sent_title">What is sent</string>
+    <string name="rationale_sent_body">Only per-day aggregates and coverage indicators. Raw heart measurements and detailed sessions are never sent to the server.</string>
+    <string name="rationale_control_title">Your control</string>
+    <string name="rationale_control_body">Every category is optional. You can withdraw a permission in Health Connect and stop imports from Repère’s Health screen.</string>
+    <string name="rationale_back">Back to Repère</string>
+
+    <!-- Network and sign-in -->
+    <string name="error_not_signed_in">Not signed in</string>
+    <string name="error_http">Error %1$d</string>
+    <string name="oauth_no_pending">No sign-in in progress</string>
+    <string name="oauth_missing_code">Missing authorization code</string>
+    <string name="oauth_unexpected_response">Unexpected OAuth response</string>
+    <string name="oauth_access_denied">Authorization denied</string>
+    <string name="oauth_failed">Sign-in failed (%1$s)</string>
+    <string name="rationale_why_title">Why these permissions</string>
+    <string name="stats_range_short">%1$s — %2$s</string>
+    <string name="error_connection_failed">Connection failed</string>
+    <string name="oauth_empty_redirect">Empty OAuth redirect</string>
 </resources>

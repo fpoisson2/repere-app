@@ -1,0 +1,13 @@
+<resources>
+    <!-- Favoris créés au premier démarrage. Ce sont des données modifiables, pas des libellés :
+         elles sont écrites une seule fois, dans la langue active à ce moment-là. -->
+    <string name="default_preset_beer_333">Bière 333 ml</string>
+    <string name="default_preset_beer_473">Bière 473 ml</string>
+    <string name="default_preset_wine_150">Vin 150 ml</string>
+    <string name="default_preset_spirits_43">Spiritueux 43 ml</string>
+    <string name="default_preset_type_beer">bière</string>
+    <string name="default_preset_type_wine">vin</string>
+    <string name="default_preset_type_spirits">spiritueux</string>
+    <string name="error_http">Erreur %1$d</string>
+    <string name="wear_drink_name">Consommation Wear OS</string>
+</resources>

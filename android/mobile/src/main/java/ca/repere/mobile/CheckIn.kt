@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -19,10 +20,10 @@ import java.time.ZoneId
 import kotlin.math.roundToInt
 
 private val SOCIAL = listOf(
-    "alone" to "Seul·e", "partner_family" to "Partenaire / famille",
-    "friends" to "Amis", "colleagues_event" to "Collègues / événement",
+    "alone" to R.string.social_alone, "partner_family" to R.string.social_partner_family,
+    "friends" to R.string.social_friends, "colleagues_event" to R.string.social_colleagues_event,
 )
-private val OTHERS = listOf("no" to "Non", "yes" to "Oui", "unknown" to "Je ne sais pas")
+private val OTHERS = listOf("no" to R.string.answer_no, "yes" to R.string.answer_yes, "unknown" to R.string.answer_unknown)
 
 @Composable
 fun CheckInDialog(day: LocalDate, onDismiss: () -> Unit, onSubmit: (JSONObject) -> Unit) {
@@ -37,38 +38,38 @@ fun CheckInDialog(day: LocalDate, onDismiss: () -> Unit, onSubmit: (JSONObject) 
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Check-in") },
+        title = { Text(stringResource(R.string.checkin)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Slider0to10("Envie de boire", craving) { craving = it }
-                Slider0to10("Confiance de tenir mon intention", confidence) { confidence = it }
-                Slider0to10("Stress", stress) { stress = it }
+                Slider0to10(stringResource(R.string.checkin_craving), craving) { craving = it }
+                Slider0to10(stringResource(R.string.checkin_confidence), confidence) { confidence = it }
+                Slider0to10(stringResource(R.string.checkin_stress), stress) { stress = it }
                 OutlinedTextField(
                     plannedStandards, { plannedStandards = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
-                    label = { Text("Consommations standard prévues aujourd’hui") }, singleLine = true,
+                    label = { Text(stringResource(R.string.checkin_planned_label)) }, singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
-                Text("Contexte social", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.checkin_social_context), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                 Column(Modifier.selectableGroup()) {
                     SOCIAL.forEach { (value, label) ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(selected = social == value, onClick = { social = value })
-                            Text(label)
+                            Text(stringResource(label))
                         }
                     }
                 }
-                Text("D’autres personnes boivent-elles ?", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.checkin_others_drinking), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                 Row {
                     OTHERS.forEach { (value, label) ->
-                        FilterChip(selected = others == value, onClick = { others = value }, label = { Text(label) }, modifier = Modifier.padding(end = 6.dp))
+                        FilterChip(selected = others == value, onClick = { others = value }, label = { Text(stringResource(label)) }, modifier = Modifier.padding(end = 6.dp))
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("De l’alcool est disponible", Modifier.weight(1f))
+                    Text(stringResource(R.string.checkin_alcohol_available), Modifier.weight(1f))
                     Switch(checked = available, onCheckedChange = { available = it })
                 }
-                OutlinedTextField(notes, { notes = it.take(2000) }, label = { Text("Note (facultatif)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(notes, { notes = it.take(2000) }, label = { Text(stringResource(R.string.checkin_notes)) }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -87,16 +88,16 @@ fun CheckInDialog(day: LocalDate, onDismiss: () -> Unit, onSubmit: (JSONObject) 
                         .put("alcohol_available", available)
                         .apply { if (notes.isNotBlank()) put("notes", notes) },
                 )
-            }) { Text("Enregistrer") }
+            }) { Text(stringResource(R.string.action_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 
 @Composable
 private fun Slider0to10(label: String, value: Float, onChange: (Float) -> Unit) {
     Column {
-        Text("$label : ${value.roundToInt()}", style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.slider_value, label, value.roundToInt()), style = MaterialTheme.typography.bodyMedium)
         Slider(value = value, onValueChange = onChange, valueRange = 0f..10f, steps = 9)
     }
 }

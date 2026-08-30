@@ -26,7 +26,7 @@ class WearProxyListenerService : WearableListenerService() {
             val requestId = request.optString("id")
             val response = runCatching { handle(request) }.fold(
                 onSuccess = { JSONObject().put("ok", true).put("body", it) },
-                onFailure = { JSONObject().put("ok", false).put("error", it.message ?: "Connexion impossible") }
+                onFailure = { JSONObject().put("ok", false).put("error", it.message ?: getString(R.string.error_connection_failed)) }
             )
             runCatching {
                 Wearable.getMessageClient(this@WearProxyListenerService)

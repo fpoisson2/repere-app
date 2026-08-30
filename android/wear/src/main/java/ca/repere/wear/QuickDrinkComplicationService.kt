@@ -41,7 +41,7 @@ class QuickDrinkComplicationService : SuspendingComplicationDataSourceService() 
     ): ComplicationData {
         val icon = MonochromaticImage.Builder(Icon.createWithResource(this, R.drawable.ic_drink)).build()
         val description = PlainComplicationText.Builder(
-            if (active) "Répère : consommation en cours" else "Répère : consommations standard aujourd'hui",
+            getString(if (active) R.string.wear_drink_in_progress_description else R.string.wear_standards_description),
         ).build()
         val text: ComplicationText = if (active && startedAtMillis > 0L) {
             TimeDifferenceComplicationText.Builder(
