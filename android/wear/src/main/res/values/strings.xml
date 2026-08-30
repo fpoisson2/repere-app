@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">Repère</string>
+    <string name="complication_drinks_label">Repère · consommations</string>
+    <string name="complication_bac_label">Repère · alcoolémie</string>
+    <string name="tile_label">Repère</string>
+    <string name="wear_ready">Prêt</string>
+    <string name="wear_in_progress">En cours</string>
+    <string name="wear_start">Démarrer</string>
+    <string name="wear_finish">Terminer</string>
+    <string name="wear_busy">…</string>
+    <string name="wear_start_saved">Début enregistré</string>
+    <string name="wear_end_saved">Fin enregistrée</string>
+    <string name="wear_saved_offline">Enregistré hors ligne</string>
+    <string name="wear_sync_failed">Synchronisation impossible</string>
+    <string name="wear_phone_not_connected">Téléphone non connecté</string>
+    <string name="wear_drink_summary">%1$d ml · %2$s %%</string>
+    <string name="wear_abv_down">−%%</string>
+    <string name="wear_abv_up">+%%</string>
+    <string name="wear_open">Ouvrir</string>
+    <string name="wear_bac_value">%1$s g/L</string>
+    <string name="wear_bac_tile">Alcoolémie estimée %1$s g/L</string>
+    <string name="wear_bac_description">Repère : alcoolémie estimée %1$s g/L (%2$s)</string>
+    <string name="wear_drink_in_progress">Consommation en cours</string>
+    <string name="wear_standards_today">cons. standard aujourd’hui</string>
+    <string name="wear_drink_in_progress_description">Repère : consommation en cours</string>
+    <string name="wear_standards_description">Repère : consommations standard aujourd’hui</string>
+    <string name="wear_unit_ml">ml</string>
+</resources>

@@ -65,7 +65,7 @@ object Api {
 
     private suspend fun relayThroughPhone(context: Context, request: JSONObject): JSONObject {
         val nodes = Wearable.getNodeClient(context).connectedNodes.await()
-        if (nodes.isEmpty()) error("Téléphone non connecté")
+        if (nodes.isEmpty()) error(context.getString(R.string.wear_phone_not_connected))
         val client = Wearable.getMessageClient(context)
         val responsePath = "$RESPONSE_PREFIX/${request.getString("id")}" 
         val response = CompletableDeferred<JSONObject>()
@@ -78,7 +78,7 @@ object Api {
         try {
             client.sendMessage(nodes.first().id, REQUEST_PATH, request.toString().toByteArray()).await()
             val envelope = withTimeout(12_000) { response.await() }
-            if (!envelope.optBoolean("ok")) error(envelope.optString("error", "Synchronisation impossible"))
+            if (!envelope.optBoolean("ok")) error(envelope.optString("error", context.getString(R.string.wear_sync_failed)))
             return JSONObject(envelope.optString("body", "{}"))
         } finally {
             client.removeListener(listener).await()

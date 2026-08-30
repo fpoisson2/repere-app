@@ -40,4 +40,545 @@
     <string name="elimination_rate">Élimination (%/h)</string>
     <string name="elimination_rate_hint">Valeur personnelle utilisée par l’estimation d’alcoolémie</string>
     <string name="invalid_elimination_rate">Le taux d’élimination doit être entre 0,005 et 0,030.</string>
+
+    <!-- Stats : graphiques partagés -->
+    <string name="chart_hint">Touche le graphique ou fais glisser ton doigt pour lire le détail d’un point.</string>
+    <string name="chart_hint_day_cell">Touche une case pour voir le détail de la journée.</string>
+    <string name="chart_hint_slot_cell">Touche une case pour lire le cumul d’un créneau.</string>
+    <string name="chart_point">Point %1$d</string>
+    <string name="chart_value">Valeur %1$d</string>
+    <string name="chart_no_data">Aucune donnée</string>
+    <string name="chart_day_value">Journée : %1$s</string>
+    <string name="chart_moving_average">Moyenne mobile %1$s</string>
+    <string name="chart_moving_average_short">Moy. %1$s : %2$s</string>
+    <string name="chart_series_per_day">Par jour</string>
+    <string name="chart_up_from_previous">En hausse par rapport à la veille</string>
+    <string name="chart_down_from_previous">En baisse par rapport à la veille</string>
+    <string name="chart_same_as_previous">Identique à la veille</string>
+    <string name="chart_signed_value">%1$s%2$s</string>
+    <string name="chart_slot_label">%1$s · %2$s h</string>
+    <string name="chart_pure_alcohol_grams">%1$s g d’alcool pur</string>
+    <string name="chart_period_total">Cumul de la période observée</string>
+    <string name="unit_grams">g</string>
+    <string name="unit_standards">std</string>
+    <string name="unit_days">j</string>
+    <string name="metric_standards">Standards</string>
+    <string name="metric_grams">Grammes</string>
+
+    <!-- Stats : en-tête et période -->
+    <string name="stats_eyebrow">Analyse</string>
+    <string name="stats_period_title">Période observée</string>
+    <string name="stats_period_range">Du %1$s au %2$s</string>
+    <string name="stats_preset_days">%1$d j</string>
+    <string name="stats_preset_year">1 an</string>
+    <string name="stats_preset_custom">Personnalisée</string>
+    <string name="stats_next">Suivant</string>
+    <string name="stats_apply">Appliquer</string>
+    <string name="stats_observed_days">Jours observés</string>
+    <string name="stats_alcohol_free_days">Jours sans alcool</string>
+    <string name="stats_days_without_data">Jours sans donnée</string>
+    <string name="stats_total_standards">Total standards</string>
+    <string name="stats_average_per_observed_day">Moyenne / jour observé</string>
+    <string name="stats_maximum">Maximum</string>
+    <string name="stats_count_with_percent">%1$d · %2$s %%</string>
+    <string name="stats_highest_day_help">Journée observée la plus élevée : %1$s g d’alcool pur.</string>
+    <string name="stats_total_pure_alcohol">Total : %1$s g d’alcool pur</string>
+
+    <!-- Stats : tendance -->
+    <string name="stats_trend_title">Tendance lissée</string>
+    <string name="stats_trend_subtitle">Consommation quotidienne et moyennes mobiles 7 / 30 / 90 jours</string>
+    <string name="stats_trend_empty">Aucune journée avec données dans cette période.</string>
+    <string name="stats_trend_threshold">Seuil 3 standards</string>
+    <string name="stats_trend_bars_grams">Grammes par jour</string>
+    <string name="stats_trend_bars_standards">Standards par jour</string>
+    <string name="stats_trend_start">Départ au %1$s, première journée avec données de la période.</string>
+    <string name="stats_window_7">7 jours</string>
+    <string name="stats_window_30">30 jours</string>
+    <string name="stats_window_90">90 jours</string>
+
+    <!-- Stats : calendrier -->
+    <string name="stats_calendar_title">Calendrier de consommation</string>
+    <string name="stats_calendar_subtitle">Une colonne par semaine · une ligne par jour de semaine</string>
+    <string name="stats_legend_no_data">Sans donnée</string>
+    <string name="stats_legend_sober">Journée sobre</string>
+    <string name="stats_legend_low">Faible</string>
+    <string name="stats_legend_high">Élevée</string>
+    <string name="stats_sober_day_value">Journée sobre · 0 g</string>
+    <string name="stats_day_value">%1$s g · %2$s std</string>
+
+    <!-- Stats : semaine type et heures -->
+    <string name="stats_weekhour_title">Semaine type</string>
+    <string name="stats_weekhour_subtitle">Grammes d’alcool pur par jour de semaine et heure de début</string>
+    <string name="stats_weekday_title">Grammes par jour de semaine</string>
+    <string name="stats_weekday_subtitle">Somme cumulée sur la période</string>
+    <string name="stats_hour_title">Par heure de début</string>
+    <string name="stats_hour_subtitle">Hauteur = grammes d’alcool pur · axe horizontal = heure de la journée</string>
+    <string name="stats_hour_slot">%1$s h — %2$s h</string>
+    <string name="stats_hour_axis_00">00 h</string>
+    <string name="stats_hour_axis_06">06 h</string>
+    <string name="stats_hour_axis_12">12 h</string>
+    <string name="stats_hour_axis_18">18 h</string>
+    <string name="stats_hour_axis_23">23 h</string>
+    <string name="stats_first_drink_metric">Première consommation</string>
+    <string name="stats_first_drink_metric_help">Heure moyenne de la première consommation d’une journée.</string>
+    <string name="stats_last_drink_metric">Dernière consommation</string>
+    <string name="stats_last_drink_metric_help">Heure moyenne de fin de la dernière consommation d’une journée.</string>
+
+    <!-- Stats : répartition -->
+    <string name="stats_distribution_days_title">Répartition des journées</string>
+    <string name="stats_distribution_days_subtitle">Nombre de journées observées par intensité</string>
+    <string name="stats_percent_of_observed">%1$s %% des journées observées</string>
+
+    <!-- Stats : première consommation -->
+    <string name="stats_first_drink_title">Heure de première consommation</string>
+    <string name="stats_first_drink_subtitle">Un point par journée avec consommation · échelle de 0 h à 24 h</string>
+    <string name="stats_first_drink_empty">Aucune consommation dans cette période.</string>
+    <string name="stats_earliest">La plus tôt</string>
+    <string name="stats_latest">La plus tard</string>
+
+    <!-- Stats : variation -->
+    <string name="stats_daytoday_title">Consommation d’un jour à l’autre</string>
+    <string name="stats_daytoday_subtitle">Écart en standards par rapport à la veille · ligne médiane = aucun changement</string>
+    <string name="stats_daytoday_empty">Pas assez de journées consécutives observées.</string>
+    <string name="stats_legend_down">En baisse</string>
+    <string name="stats_legend_up">En hausse</string>
+
+    <!-- Stats : périodes -->
+    <string name="stats_weekly_title">Évolution par semaine</string>
+    <string name="stats_monthly_title">Évolution par mois</string>
+    <string name="stats_periods_subtitle">Standards totaux · 12 dernières périodes</string>
+    <string name="stats_periods_empty">Aucune période observée.</string>
+    <string name="stats_week_of">Semaine du %1$s</string>
+
+    <!-- Stats : distribution complète -->
+    <string name="stats_distribution_title">Distribution complète</string>
+    <string name="stats_distribution_subtitle">Par journée observée · 1 consommation standard = %1$s g d’alcool pur.</string>
+    <string name="stats_distribution_tap_hint">Touche une tuile pour l’explication de la statistique.</string>
+    <string name="stats_mean">Moyenne</string>
+    <string name="stats_median">Médiane</string>
+    <string name="stats_q1">Quartile 1</string>
+    <string name="stats_q3">Quartile 3</string>
+    <string name="stats_p90">P90</string>
+    <string name="stats_stddev">Écart-type</string>
+    <string name="stats_cv">Coeff. variation</string>
+    <string name="stats_minimum">Minimum</string>
+    <string name="stats_mean_help">Votre niveau moyen par journée observée. Elle sert à suivre l’évolution générale, mais peut être tirée vers le haut par quelques journées très élevées.</string>
+    <string name="stats_median_help">Votre journée la plus représentative : la moitié des journées est en dessous et l’autre moitié au-dessus. Utile lorsque quelques épisodes élevés déforment la moyenne.</string>
+    <string name="stats_q1_help">25 % des journées observées sont à ce niveau ou moins. Peut servir de repère réaliste pour vos journées de plus faible consommation.</string>
+    <string name="stats_q3_help">75 % des journées observées sont à ce niveau ou moins. Au-dessus, vous entrez dans le quart de vos journées les plus élevées.</string>
+    <string name="stats_p90_help">90 % des journées observées sont à ce niveau ou moins. Les valeurs supérieures correspondent à vos 10 % de journées les plus élevées et peuvent aider à repérer les épisodes exceptionnels.</string>
+    <string name="stats_stddev_help">Indique à quel point vos journées varient autour de la moyenne. Une valeur faible signifie un rythme stable; une valeur élevée indique des écarts importants d’une journée à l’autre.</string>
+    <string name="stats_cv_help">Rapporte la variabilité à votre moyenne. Pratique pour voir si votre rythme devient plus régulier même lorsque votre niveau moyen change.</string>
+    <string name="stats_minimum_help">Votre plus faible journée réellement observée. Les journées sobres explicitement consignées peuvent donc donner une valeur de zéro.</string>
+    <string name="stats_maximum_help">Votre journée observée la plus élevée. Sert à identifier l’ampleur de votre pic historique, sans en faire un record à battre.</string>
+
+    <!-- Stats : santé et sessions -->
+    <string name="stats_health_title">Données de santé</string>
+    <string name="stats_health_subtitle">Données locales Health Connect</string>
+    <string name="stats_health_empty">Aucune donnée Health Connect locale pour cette période.</string>
+    <string name="stats_health_days_with_data">Jours avec donnée</string>
+    <string name="stats_sessions_title">Sessions</string>
+    <string name="stats_sessions_subtitle">Écart de 8 h · calcul local</string>
+    <string name="health_sleep">Sommeil</string>
+    <string name="health_steps">Pas</string>
+    <string name="health_exercise">Exercice</string>
+    <string name="health_resting_heart_rate">FC repos</string>
+    <string name="health_heart_rate">FC moyenne</string>
+    <string name="health_hrv">VFC</string>
+
+    <plurals name="stats_drinks_count">
+        <item quantity="one">%1$d consommation</item>
+        <item quantity="other">%1$d consommations</item>
+    </plurals>
+    <plurals name="stats_alcohol_free_count">
+        <item quantity="one">%1$d jour sans alcool</item>
+        <item quantity="other">%1$d jours sans alcool</item>
+    </plurals>
+    <string-array name="weekday_names">
+        <item>Lundi</item><item>Mardi</item><item>Mercredi</item><item>Jeudi</item>
+        <item>Vendredi</item><item>Samedi</item><item>Dimanche</item>
+    </string-array>
+    <string-array name="weekday_initials">
+        <item>L</item><item>M</item><item>M</item><item>J</item><item>V</item><item>S</item><item>D</item>
+    </string-array>
+    <string-array name="stats_intensity_buckets">
+        <item>0 standard</item><item>≤ 1 standard</item><item>1 à 2 standards</item>
+        <item>2 à 4 standards</item><item>Plus de 4 standards</item>
+    </string-array>
+
+    <!-- Actions communes -->
+    <string name="action_cancel">Annuler</string>
+    <string name="action_ok">OK</string>
+    <string name="action_save">Enregistrer</string>
+    <string name="action_delete">Supprimer</string>
+    <string name="action_edit">Modifier</string>
+    <string name="action_add">Ajouter</string>
+    <string name="action_change">Changer</string>
+    <string name="action_choose">Choisir</string>
+    <string name="action_continue">Continuer</string>
+    <string name="action_import">Importer</string>
+    <string name="percent_value">%1$d %%</string>
+
+    <!-- Repères -->
+    <string name="insights_eyebrow">Associations personnelles</string>
+    <string name="insights_readiness_title">Disponibilité</string>
+    <string name="insights_readiness_subtitle">Ce que tes données permettent aujourd’hui</string>
+    <string name="insights_days_available">Jours disponibles</string>
+    <string name="insights_events_available">Journées de dépassement</string>
+    <string name="insights_descriptive">Analyse descriptive</string>
+    <string name="insights_associations">Associations</string>
+    <string name="insights_regularized_model">Modèle régularisé</string>
+    <string name="insights_ready_masc">Prêt</string>
+    <string name="insights_ready_fem">Prête</string>
+    <string name="insights_ready_fem_plural">Prêtes</string>
+    <string name="insights_not_yet">Pas encore</string>
+    <plurals name="insights_insufficient_sample">
+        <item quantity="one">Échantillon insuffisant (%1$d observation).</item>
+        <item quantity="other">Échantillon insuffisant (%1$d observations).</item>
+    </plurals>
+    <string name="insights_coefficient">Coefficient</string>
+    <string name="insights_coefficient_value">%1$s · %2$s</string>
+    <string name="insights_observations">Observations</string>
+    <string name="insights_disclaimer">Ces résultats décrivent des associations personnelles; ils ne démontrent pas une cause.</string>
+    <string name="insights_association_sentence">Tes dépassements ont été plus fréquents lorsque %1$s.</string>
+    <string name="insights_factor_craving">l’envie de boire était plus forte</string>
+    <string name="insights_factor_confidence">la confiance était plus faible</string>
+    <string name="insights_factor_stress">le stress était plus élevé</string>
+    <string name="strength_weak">faible</string>
+    <string name="strength_moderate">modérée</string>
+    <string name="strength_strong">forte</string>
+
+    <!-- Succès -->
+    <string name="success_eyebrow">Progrès orientés réduction</string>
+    <string name="success_overview">Vue d’ensemble</string>
+    <string name="success_badges_earned">Badges obtenus</string>
+    <string name="success_badge_ratio">%1$d / %2$d</string>
+    <string name="success_unlocked">Obtenu</string>
+    <string name="badge_logged_1">Premier pas</string>
+    <string name="badge_logged_3">Carnet ouvert</string>
+    <string name="badge_logged_7">Une semaine de données</string>
+    <string name="badge_logged_14">Deux semaines de données</string>
+    <string name="badge_logged_30">Un mois documenté</string>
+    <string name="badge_logged_60">Suivi régulier</string>
+    <string name="badge_logged_90">Un trimestre documenté</string>
+    <string name="badge_logged_180">Six mois de recul</string>
+    <string name="badge_logged_365">Une année de données</string>
+    <string name="badge_dry_3">Respiration</string>
+    <string name="badge_dry_7">Semaine claire</string>
+    <string name="badge_dry_14">Cap des deux semaines</string>
+    <string name="badge_dry_30">Mois sans alcool</string>
+    <string name="badge_reduce_10">Tendance inversée</string>
+    <string name="badge_reduce_25">Virage durable</string>
+    <string name="badge_month_10">Mois en progrès</string>
+    <string name="badge_checkin_1">Premier check-in</string>
+    <string name="badge_checkin_7">Prendre du recul</string>
+    <string name="badge_checkin_30">Repères réguliers</string>
+    <string name="badge_checkin_90">Habitude de réflexion</string>
+    <string name="badge_goals_1">Premier objectif atteint</string>
+    <string name="badge_goals_n">%1$d objectifs atteints</string>
+    <string name="badge_weekend_2">Guerrier du week-end · 2 semaines</string>
+    <string name="badge_weekend_4">Guerrier du week-end · 1 mois</string>
+    <string name="badge_weekend_8">Guerrier du week-end · 2 mois</string>
+    <string name="badge_weekend_12">Guerrier du week-end · 3 mois</string>
+    <string name="badge_reduce_desc">Moyenne mobile 30 jours réduite d’au moins %1$d %%</string>
+    <string name="badge_month_desc">Diminution mensuelle d’au moins %1$d %%</string>
+    <string name="badge_weekend_desc">Consommation limitée au samedi et dimanche pendant %1$d semaines complètes</string>
+    <plurals name="badge_logged_desc">
+        <item quantity="one">%1$d journée renseignée</item>
+        <item quantity="other">%1$d journées renseignées</item>
+    </plurals>
+    <plurals name="badge_dry_desc">
+        <item quantity="one">%1$d jour consécutif sans alcool</item>
+        <item quantity="other">%1$d jours consécutifs sans alcool</item>
+    </plurals>
+    <plurals name="badge_checkin_desc">
+        <item quantity="one">%1$d check-in personnel complété</item>
+        <item quantity="other">%1$d check-in personnels complétés</item>
+    </plurals>
+    <plurals name="badge_goals_desc">
+        <item quantity="one">%1$d objectif personnel atteint</item>
+        <item quantity="other">%1$d objectifs personnels atteints</item>
+    </plurals>
+
+    <!-- Objectifs -->
+    <string name="goals_eyebrow">Suivi</string>
+    <string name="goals_add">Ajouter un objectif</string>
+    <string name="goals_none_title">Aucun objectif</string>
+    <string name="goals_none_body">Ajoute un objectif pour suivre ta progression semaine après semaine.</string>
+    <string name="goals_target">Cible</string>
+    <string name="goals_current">Actuel</string>
+    <string name="goals_status">Statut</string>
+    <string name="goals_on_track">Sur la bonne voie</string>
+    <string name="goals_off_track">À ajuster</string>
+    <string name="goals_paused">En pause</string>
+    <string name="goals_remove">Retirer</string>
+    <string name="goals_new">Nouvel objectif</string>
+    <string name="goals_type">Type</string>
+    <string name="goals_deadline_switch">Objectif avec échéance</string>
+    <string name="goals_due_date_label">Échéance (AAAA-MM-JJ)</string>
+    <string name="goals_weeks_label">Semaines consécutives à tenir</string>
+    <string name="goals_create">Créer</string>
+    <string name="goal_kind_max_moving_7_grams">Moyenne mobile 7 j en grammes (max)</string>
+    <string name="goal_kind_max_grams_week">Grammes / semaine (max)</string>
+    <string name="goal_kind_max_standards">Standards / semaine (max)</string>
+    <string name="goal_kind_min_alcohol_free_days">Jours sans alcool / semaine (min)</string>
+    <string name="goal_kind_max_drinking_days">Jours avec alcool / semaine (max)</string>
+    <string name="goal_kind_max_grams_session">Grammes / occasion (max)</string>
+    <string name="goal_kind_monthly_reduction">Réduction mensuelle (%%)</string>
+    <string name="goal_deadline">À tenir jusqu’au %1$s</string>
+    <string name="goal_deadline_with_days">À tenir jusqu’au %1$s (dans %2$d j)</string>
+    <string name="goal_weeks">À maintenir %1$s semaines consécutives</string>
+    <string name="goal_weeks_with_progress">À maintenir %1$s semaines consécutives · %2$d/%3$s atteintes</string>
+
+    <!-- Unités -->
+    <string name="unit_ml">ml</string>
+    <string name="unit_oz">oz</string>
+    <string name="unit_percent">%%</string>
+    <string name="unit_minutes">min</string>
+    <string name="unit_gl">g/L</string>
+
+    <!-- État de synchronisation -->
+    <string name="status_offline_ready">Prêt hors ligne</string>
+    <string name="status_local_only">Local uniquement</string>
+    <string name="status_syncing">Synchronisation…</string>
+    <string name="status_up_to_date">À jour</string>
+    <string name="status_offline_kept">Hors ligne · les saisies sont conservées</string>
+    <string name="status_pending_send">En attente d’envoi</string>
+    <string name="status_kept_locally">Conservé localement</string>
+    <string name="status_pending_edit">Modification en attente</string>
+    <string name="status_pending_delete">Suppression en attente</string>
+    <string name="status_sync_enabled">Synchronisation activée</string>
+
+    <!-- Maintenant -->
+    <string name="day_previous">Jour précédent</string>
+    <string name="day_next">Jour suivant</string>
+    <string name="today">Aujourd’hui</string>
+    <string name="today_caps">AUJOURD’HUI</string>
+    <string name="checkin">Check-in</string>
+    <string name="checkin_done">Check-in fait</string>
+    <string name="checkin_saved">Check-in enregistré</string>
+    <string name="checkin_not_sent">Check-in non envoyé</string>
+    <string name="quick_add">Ajouter rapidement</string>
+    <string name="favourite_new">Nouveau favori</string>
+    <string name="favourite_long_press">Appui long sur un favori pour le modifier.</string>
+    <string name="favourites_empty">Connecte-toi une première fois pour télécharger tes favoris.</string>
+    <string name="preset_summary">%1$d ml · %2$s %%</string>
+    <string name="drinks_title">Consommations</string>
+    <string name="drink_deleted">Consommation supprimée</string>
+    <string name="day_marked_sober">Journée marquée sobre.</string>
+    <string name="sober_day_cancel">Annuler la journée sobre</string>
+    <string name="sober_day_cancelled">Journée sobre annulée</string>
+    <string name="sober_day_cancel_failed">Impossible d’annuler</string>
+    <string name="day_no_drinks">Aucune consommation ce jour.</string>
+    <string name="sober_day_mark">Marquer cette journée sobre</string>
+    <string name="sober_day_save_failed">Impossible d’enregistrer</string>
+    <string name="sober_day_saved_title">Journée sobre enregistrée</string>
+    <string name="sober_day_saved_body">Bien joué. Cette journée est maintenant comptée comme une journée sans alcool.</string>
+    <string name="guideline_within">Repère à faible risque : %1$s std/j</string>
+    <string name="guideline_over">Au-delà du repère à faible risque (%1$s std/j)</string>
+    <plurals name="canadian_standards_label">
+        <item quantity="one">standard canadien</item>
+        <item quantity="other">standards canadiens</item>
+    </plurals>
+
+    <!-- Consommation -->
+    <string name="drink_default_name">Consommation</string>
+    <string name="drink_new">Nouvelle consommation</string>
+    <string name="drink_edit">Modifier la consommation</string>
+    <string name="field_name">Nom</string>
+    <string name="field_volume">Volume</string>
+    <string name="field_alcohol">Alcool</string>
+    <string name="field_quantity">Quantité</string>
+    <string name="field_date">Date</string>
+    <string name="field_time">Heure</string>
+    <string name="field_duration">Durée</string>
+    <string name="action_decrease">Diminuer</string>
+    <string name="action_increase">Augmenter</string>
+    <plurals name="live_standards">
+        <item quantity="one">≈ %1$s consommation standard</item>
+        <item quantity="other">≈ %1$s consommations standard</item>
+    </plurals>
+    <string name="drink_row_summary">%1$s · %2$d ml · %3$s %% · ×%4$d</string>
+
+    <!-- Favoris -->
+    <string name="preset_new">Nouveau favori</string>
+    <string name="preset_edit">Modifier le favori</string>
+    <string name="field_type">Type (bière, vin…)</string>
+    <string name="field_volume_ml">Volume (ml)</string>
+    <string name="field_alcohol_percent">Alcool (%%)</string>
+    <string name="preset_delete">Supprimer ce favori</string>
+    <string name="delete_failed">Suppression impossible</string>
+    <string name="save_failed">Enregistrement impossible</string>
+
+    <!-- Profil corporel -->
+    <string name="body_profile_title">Alcoolémie — profil corporel</string>
+    <string name="body_profile_subtitle">Sexe, poids et grandeur servent au calcul du taux d’alcoolémie (formule de Watson).</string>
+    <string name="field_sex">Sexe</string>
+    <string name="sex_unspecified">Non précisé</string>
+    <string name="sex_female">Femme</string>
+    <string name="sex_male">Homme</string>
+    <string name="field_weight_kg">Poids (kg)</string>
+    <string name="field_height_cm">Grandeur (cm)</string>
+    <string name="distribution_factor">Facteur de distribution calculé : %1$s</string>
+    <string name="weight_required">Poids requis pour calculer l’alcoolémie</string>
+    <string name="profile_saved_device">Profil enregistré sur l’appareil</string>
+    <string name="profile_saved_scheduled">Profil enregistré localement · sauvegarde planifiée</string>
+    <string name="profile_saved_pending">Profil enregistré sur l’appareil · synchronisation en attente</string>
+    <string name="save_profile">Enregistrer le profil</string>
+
+    <!-- Alcoolémie -->
+    <string name="bac_estimated_caps">ALCOOLÉMIE ESTIMÉE</string>
+    <string name="bac_profile_missing_offline">Configure ton profil corporel dans Réglages pour estimer l’alcoolémie hors ligne.</string>
+    <string name="bac_profile_missing">Configure ton profil corporel dans Réglages.</string>
+    <string name="bac_at_zero">À zéro · pic estimé %1$s g/L</string>
+    <string name="bac_trend">Tendance : %1$s · pic %2$s g/L</string>
+    <string name="bac_back_to_zero">%1$s · retour à 0 vers %2$s</string>
+    <string name="bac_trend_up">hausse</string>
+    <string name="bac_trend_down">baisse</string>
+    <string name="bac_trend_stable">stable</string>
+    <string name="bac_now">maintenant</string>
+    <string name="bac_disclaimer_live">Estimation mathématique — jamais un indicateur de capacité à conduire.</string>
+    <string name="bac_disclaimer">Estimation mathématique, jamais une autorisation de conduire.</string>
+    <string name="bac_peak_title">Alcoolémie maximale estimée</string>
+    <string name="bac_peak_value">%1$s g/L</string>
+
+    <!-- Carte de check-in -->
+    <string name="checkin_none_today">Aucun check-in aujourd’hui.</string>
+    <string name="checkin_today_caps">CHECK-IN DU JOUR</string>
+    <string name="checkin_day_caps">CHECK-IN DE CETTE JOURNÉE</string>
+    <string name="checkin_scores">Envie %1$d/10 · confiance %2$d/10</string>
+    <string name="checkin_scores_with_stress">Envie %1$d/10 · confiance %2$d/10 · stress %3$d/10</string>
+    <string name="checkin_daily_target">Objectif du jour : %1$s conso standard</string>
+    <string name="checkin_post_onset">Rempli après la première consommation</string>
+
+    <!-- Check-in -->
+    <string name="checkin_planned_label">Consommations standard prévues aujourd’hui</string>
+    <string name="checkin_craving">Envie de boire</string>
+    <string name="checkin_confidence">Confiance de tenir mon intention</string>
+    <string name="checkin_stress">Stress</string>
+    <string name="checkin_social_context">Contexte social</string>
+    <string name="social_alone">Seul·e</string>
+    <string name="social_partner_family">Partenaire / famille</string>
+    <string name="social_friends">Amis</string>
+    <string name="social_colleagues_event">Collègues / événement</string>
+    <string name="checkin_others_drinking">D’autres personnes boivent-elles ?</string>
+    <string name="answer_no">Non</string>
+    <string name="answer_yes">Oui</string>
+    <string name="answer_unknown">Je ne sais pas</string>
+    <string name="checkin_alcohol_available">De l’alcool est disponible</string>
+    <string name="checkin_notes">Note (facultatif)</string>
+    <string name="slider_value">%1$s : %2$d</string>
+
+    <!-- Historique -->
+    <string name="history_eyebrow">Copie locale</string>
+    <string name="history_empty">L’historique apparaîtra après la première synchronisation.</string>
+
+    <!-- Santé -->
+    <string name="health_eyebrow">Données choisies</string>
+    <string name="health_choose_precisely">Choisis précisément les données à partager.</string>
+    <string name="health_unavailable">Health Connect n’est pas disponible sur cet appareil.</string>
+    <string name="health_control_title">Tes données restent sous ton contrôle</string>
+    <string name="health_control_body">Repère conserve des résumés quotidiens sur ce téléphone, jamais les mesures brutes. Une valeur absente ne devient pas zéro.</string>
+    <string name="health_available_data">Données disponibles</string>
+    <string name="health_long_sleep">Sommeil</string>
+    <string name="health_long_steps">Pas</string>
+    <string name="health_long_exercise">Exercice</string>
+    <string name="health_long_heart_rate">Fréquence cardiaque</string>
+    <string name="health_long_resting_heart_rate">Fréquence au repos</string>
+    <string name="health_long_hrv">Variabilité cardiaque</string>
+    <string name="health_allowed">Autorisé</string>
+    <string name="health_not_shared">Non partagé</string>
+    <string name="health_choose_permissions">Choisir les autorisations</string>
+    <string name="health_background_title">Synchronisation automatique</string>
+    <string name="health_background_subtitle">Résumés récents, environ deux fois par jour</string>
+    <string name="health_background_enabled">Synchronisation Santé en arrière-plan activée.</string>
+    <string name="health_background_denied">Synchronisation en arrière-plan non autorisée.</string>
+    <string name="health_background_disabled">Synchronisation automatique désactivée.</string>
+    <string name="health_import_range">Période à importer</string>
+    <string name="health_history_note">Au-delà de 30 jours, Health Connect exige l’autorisation « historique » (demandée avec les autres).</string>
+    <string name="health_reading_days">Lecture des %1$d derniers jours…</string>
+    <string name="health_import_failed">Import impossible</string>
+    <string name="health_importing">Import en cours…</string>
+    <plurals name="health_permissions_granted">
+        <item quantity="one">%1$d autorisation accordée.</item>
+        <item quantity="other">%1$d autorisations accordées.</item>
+    </plurals>
+    <plurals name="health_local_summaries">
+        <item quantity="one">%1$d résumé dans la copie locale</item>
+        <item quantity="other">%1$d résumés dans la copie locale</item>
+    </plurals>
+    <plurals name="health_import_stored">
+        <item quantity="one">%1$d résumé conservé localement.</item>
+        <item quantity="other">%1$d résumés conservés localement.</item>
+    </plurals>
+    <plurals name="health_import_stored_synced">
+        <item quantity="one">%1$d résumé conservé localement et synchronisé.</item>
+        <item quantity="other">%1$d résumés conservés localement et synchronisés.</item>
+    </plurals>
+
+    <!-- Réglages -->
+    <string name="settings_eyebrow">Téléphone et montre</string>
+    <string name="settings_server_address">Adresse du serveur</string>
+    <string name="settings_local_first">Repère fonctionne entièrement sur ce téléphone. La connexion au serveur est facultative.</string>
+    <string name="settings_sign_in">Se connecter à Repère</string>
+    <string name="settings_oauth_note">Une page sécurisée s’ouvrira pour autoriser l’application (OAuth 2.0 + PKCE).</string>
+    <string name="settings_device_paired">Appareil associé</string>
+    <string name="settings_offline_active">La copie hors ligne est active.</string>
+    <string name="settings_sync_with_server">Synchroniser avec le serveur</string>
+    <string name="settings_changes_sent">Les changements seront envoyés</string>
+    <string name="settings_data_stays">Les données restent sur cet appareil</string>
+    <string name="settings_sync_watch">Synchroniser la montre</string>
+    <string name="settings_watch_configured">Configuration envoyée à la montre</string>
+    <string name="settings_sign_out">Se déconnecter</string>
+    <string name="settings_signed_out">Déconnecté</string>
+    <string name="settings_units_title">Unités de mesure</string>
+    <string name="settings_units_note">Le nombre de grammes d’alcool pur dans une « consommation standard » varie selon le pays. Ajuste-le si tu préfères une autre référence.</string>
+    <string name="settings_grams_per_standard">Grammes par consommation standard</string>
+    <string name="settings_grams_range">Entre 4 et 30 g</string>
+    <string name="settings_volume_unit">Unité de volume</string>
+    <string name="settings_millilitres">Millilitres (ml)</string>
+    <string name="settings_fluid_ounces">Onces liquides (oz)</string>
+    <string name="settings_units_saved">Unités de mesure enregistrées</string>
+    <string name="settings_save_units">Enregistrer les unités de mesure</string>
+    <string name="settings_app_section">Application</string>
+    <string name="settings_reminder">Rappel de check-in</string>
+    <string name="settings_reminder_subtitle">1 h 30 avant ton heure habituelle de consommation</string>
+    <string name="settings_reminder_on">Rappel de check-in activé</string>
+    <string name="settings_reminder_off">Rappel de check-in désactivé</string>
+    <string name="settings_notification_denied">Autorisation de notification refusée</string>
+    <string name="settings_health_data">Données de santé (Health Connect)</string>
+    <string name="settings_full_history">Historique complet</string>
+    <string name="country_canada">Canada</string>
+    <string name="country_usa">USA</string>
+    <string name="country_uk">UK</string>
+    <string name="country_australia">Australie</string>
+    <string name="standard_chip">%1$s · %2$s g</string>
+
+    <!-- Rappel -->
+    <string name="reminder_title">Un check-in ?</string>
+    <string name="reminder_text">C’est bientôt ton heure habituelle. Prends un moment pour noter ton intention.</string>
+    <string name="reminder_channel_name">Rappel de check-in</string>
+    <string name="reminder_channel_description">Rappel avant l’heure habituelle de consommation</string>
+
+    <!-- Health Connect : justification -->
+    <string name="rationale_title">Repère et tes données de santé</string>
+    <string name="rationale_body">Repère rapproche tes consommations de résumés quotidiens comme le sommeil, les pas, l’exercice et les tendances cardiaques afin de montrer tes propres associations dans le temps.</string>
+    <string name="rationale_sent_title">Ce qui est envoyé</string>
+    <string name="rationale_sent_body">Seulement des agrégats par journée et des indicateurs de couverture. Les mesures cardiaques brutes et les séances détaillées ne sont pas transférées au serveur.</string>
+    <string name="rationale_control_title">Ton contrôle</string>
+    <string name="rationale_control_body">Chaque catégorie est facultative. Tu peux retirer une autorisation dans Health Connect et arrêter les imports depuis l’écran Santé de Repère.</string>
+    <string name="rationale_back">Revenir à Repère</string>
+
+    <!-- Réseau et connexion -->
+    <string name="error_not_signed_in">Non connecté</string>
+    <string name="error_http">Erreur %1$d</string>
+    <string name="oauth_no_pending">Aucune connexion en cours</string>
+    <string name="oauth_missing_code">Code d’autorisation manquant</string>
+    <string name="oauth_unexpected_response">Réponse OAuth inattendue</string>
+    <string name="oauth_access_denied">Autorisation refusée</string>
+    <string name="oauth_failed">Connexion impossible (%1$s)</string>
+    <string name="rationale_why_title">Pourquoi ces autorisations</string>
+    <string name="stats_range_short">%1$s — %2$s</string>
+    <string name="error_connection_failed">Connexion impossible</string>
+    <string name="oauth_empty_redirect">Redirection OAuth vide</string>
 </resources>

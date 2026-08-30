@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.*
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -58,7 +60,7 @@ class MainActivity : ComponentActivity() {
                     active = !active
                     prefs.edit().putInt("volume", volume).putFloat("abv", abv).apply()
                     val queued = result.optBoolean("queued")
-                    message = if (queued) "Enregistré hors ligne" else if (active) "Début enregistré" else "Fin enregistrée"
+                    message = getString(if (queued) R.string.wear_saved_offline else if (active) R.string.wear_start_saved else R.string.wear_end_saved)
                     val startedAt = if (active) {
                         val raw = result.optString("started_at_utc").ifBlank { result.optString("started_at") }
                         if (raw.isNotBlank()) parseInstantMillis(raw) else Instant.now().toEpochMilli()
@@ -69,7 +71,7 @@ class MainActivity : ComponentActivity() {
                     // only record that a consumption just started or ended.
                     cacheForComplication(prefs, active, startedAt, todayStandard)
                 }
-                .onFailure { message = it.message ?: "Synchronisation impossible" }
+                .onFailure { message = it.message ?: getString(R.string.wear_sync_failed) }
             busy = false
         }
         // The phone may correct this state later (e.g. once its own sync catches up), so keep
@@ -86,19 +88,19 @@ class MainActivity : ComponentActivity() {
             onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
         }
         Column(Modifier.fillMaxSize().padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(if (active) "En cours" else "Prêt", style = MaterialTheme.typography.title2)
+            Text(stringResource(if (active) R.string.wear_in_progress else R.string.wear_ready), style = MaterialTheme.typography.title2)
             if(active && activeStartedAt>0L){
                 val seconds=((clock-activeStartedAt).coerceAtLeast(0L)/1_000);Text("%02d:%02d".format(seconds/60,seconds%60),style=MaterialTheme.typography.title1)
             }
             if (!active) {
-                Text("${volume} ml · ${"%.1f".format(abv)} %")
+                Text(stringResource(R.string.wear_drink_summary, volume, String.format(Locale.getDefault(), "%.1f", abv)))
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Button(onClick = { volume = when(volume) { 333 -> 473; 473 -> 150; else -> 333 } }) { Text("ml") }
-                    Button(onClick = { abv = (abv - .5f).coerceAtLeast(.5f) }) { Text("−%") }
-                    Button(onClick = { abv = (abv + .5f).coerceAtMost(70f) }) { Text("+%") }
+                    Button(onClick = { volume = when(volume) { 333 -> 473; 473 -> 150; else -> 333 } }) { Text(stringResource(R.string.wear_unit_ml)) }
+                    Button(onClick = { abv = (abv - .5f).coerceAtLeast(.5f) }) { Text(stringResource(R.string.wear_abv_down)) }
+                    Button(onClick = { abv = (abv + .5f).coerceAtMost(70f) }) { Text(stringResource(R.string.wear_abv_up)) }
                 }
             }
-            Button(onClick = { toggle() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "…" else if (active) "Terminer" else "Démarrer") }
+            Button(onClick = { toggle() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(if (busy) R.string.wear_busy else if (active) R.string.wear_finish else R.string.wear_start)) }
             if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.body2)
         }
     }

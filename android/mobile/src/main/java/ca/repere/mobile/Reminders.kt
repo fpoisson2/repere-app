@@ -78,8 +78,8 @@ object CheckInReminder {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Un check-in ?")
-            .setContentText("C’est bientôt ton heure habituelle. Prends un moment pour noter ton intention.")
+            .setContentTitle(context.getString(R.string.reminder_title))
+            .setContentText(context.getString(R.string.reminder_text))
             .setAutoCancel(true)
             .setContentIntent(open)
             .build()
@@ -90,8 +90,8 @@ object CheckInReminder {
         val mgr = context.getSystemService(NotificationManager::class.java) ?: return
         if (mgr.getNotificationChannel(CHANNEL) == null) {
             mgr.createNotificationChannel(
-                NotificationChannel(CHANNEL, "Rappel de check-in", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                    description = "Rappel avant l’heure habituelle de consommation"
+                NotificationChannel(CHANNEL, context.getString(R.string.reminder_channel_name), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = context.getString(R.string.reminder_channel_description)
                 },
             )
         }
