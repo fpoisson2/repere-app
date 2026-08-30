@@ -417,13 +417,23 @@
     <string name="sex_unspecified">Not specified</string>
     <string name="sex_female">Female</string>
     <string name="sex_male">Male</string>
-    <string name="field_weight_kg">Weight (kg)</string>
-    <string name="field_height_cm">Height (cm)</string>
+    <string name="field_weight">Weight (%1$s)</string>
+    <string name="field_height">Height (%1$s)</string>
     <string name="distribution_factor">Computed distribution factor: %1$s</string>
     <string name="weight_required">Weight is required to estimate blood alcohol</string>
     <string name="profile_saved_device">Profile saved on this device</string>
     <string name="profile_saved_scheduled">Profile saved locally · backup scheduled</string>
     <string name="profile_saved_pending">Profile saved on this device · sync pending</string>
+    <string name="unit_abbr_kg">kg</string>
+    <string name="unit_abbr_lb">lb</string>
+    <string name="unit_abbr_cm">cm</string>
+    <string name="unit_abbr_in">in</string>
+    <string name="settings_weight_unit">Weight unit</string>
+    <string name="settings_height_unit">Height unit</string>
+    <string name="settings_unit_kg">Kilograms (kg)</string>
+    <string name="settings_unit_lb">Pounds (lb)</string>
+    <string name="settings_unit_cm">Centimeters (cm)</string>
+    <string name="settings_unit_in">Inches (in)</string>
     <string name="save_profile">Save profile</string>
 
     <!-- Blood alcohol -->
@@ -518,6 +528,7 @@
 
     <!-- Settings -->
     <string name="settings_eyebrow">Phone and watch</string>
+    <string name="settings_section_connection">Connection</string>
     <string name="settings_server_address">Server address</string>
     <string name="settings_local_first">Repère runs entirely on this phone. Connecting to a server is optional.</string>
     <string name="settings_sign_in">Sign in to Repère</string>

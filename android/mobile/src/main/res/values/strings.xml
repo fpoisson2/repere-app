@@ -417,13 +417,23 @@
     <string name="sex_unspecified">Non précisé</string>
     <string name="sex_female">Femme</string>
     <string name="sex_male">Homme</string>
-    <string name="field_weight_kg">Poids (kg)</string>
-    <string name="field_height_cm">Grandeur (cm)</string>
+    <string name="field_weight">Poids (%1$s)</string>
+    <string name="field_height">Grandeur (%1$s)</string>
     <string name="distribution_factor">Facteur de distribution calculé : %1$s</string>
     <string name="weight_required">Poids requis pour calculer l’alcoolémie</string>
     <string name="profile_saved_device">Profil enregistré sur l’appareil</string>
     <string name="profile_saved_scheduled">Profil enregistré localement · sauvegarde planifiée</string>
     <string name="profile_saved_pending">Profil enregistré sur l’appareil · synchronisation en attente</string>
+    <string name="unit_abbr_kg">kg</string>
+    <string name="unit_abbr_lb">lb</string>
+    <string name="unit_abbr_cm">cm</string>
+    <string name="unit_abbr_in">po</string>
+    <string name="settings_weight_unit">Unité de poids</string>
+    <string name="settings_height_unit">Unité de grandeur</string>
+    <string name="settings_unit_kg">Kilogrammes (kg)</string>
+    <string name="settings_unit_lb">Livres (lb)</string>
+    <string name="settings_unit_cm">Centimètres (cm)</string>
+    <string name="settings_unit_in">Pouces (po)</string>
     <string name="save_profile">Enregistrer le profil</string>
 
     <!-- Alcoolémie -->
@@ -518,6 +528,7 @@
 
     <!-- Réglages -->
     <string name="settings_eyebrow">Téléphone et montre</string>
+    <string name="settings_section_connection">Connexion</string>
     <string name="settings_server_address">Adresse du serveur</string>
     <string name="settings_local_first">Repère fonctionne entièrement sur ce téléphone. La connexion au serveur est facultative.</string>
     <string name="settings_sign_in">Se connecter à Repère</string>

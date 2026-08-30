@@ -30,6 +30,9 @@ class CredentialStore(private val context:Context) {
     fun bodySex():String=get("body_sex","unspecified")
     fun bodyHeightCm():Double?=get("body_height_cm","").toDoubleOrNull()
     fun saveBodyMetrics(sex:String,heightCm:Double?){put("body_sex",sex);put("body_height_cm",heightCm?.toString().orEmpty())}
+    fun weightUnit():String=get("weight_unit","kg")
+    fun heightUnit():String=get("height_unit","cm")
+    fun saveMeasurementUnits(weightUnit:String,heightUnit:String){put("weight_unit",weightUnit);put("height_unit",heightUnit)}
     fun saveBacProfile(weightKg:Double,distributionRatio:Double,eliminationRate:Double=.015){
         put("bac_weight_kg",weightKg.toString());put("bac_distribution_ratio",distributionRatio.toString());put("bac_elimination_rate",eliminationRate.toString())
     }
