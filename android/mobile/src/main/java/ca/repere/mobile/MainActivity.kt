@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
@@ -142,12 +143,37 @@ class MainActivity : ComponentActivity() {
         SyncWorker.schedule(this)
         CheckInReminder.schedule(this) // re-arm the daily reminder chain if it was enabled
         val openCheckIn = intent?.getBooleanExtra("open_checkin", false) == true
+        val activity = this
         setContent {
+            val darkTheme = isSystemInDarkTheme()
+            applyPalette(darkTheme) // must run before any child composes: chart DrawScope code reads these as plain vars, not CompositionLocals
+            var dynamicColor by remember { mutableStateOf(AppearancePrefs.dynamicColorEnabled(activity)) }
+            val dynamicColorSupported = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+            val colorScheme = when {
+                dynamicColor && dynamicColorSupported -> if (darkTheme) dynamicDarkColorScheme(activity) else dynamicLightColorScheme(activity)
+                darkTheme -> darkColorScheme(
+                    primary = Pine, onPrimary = AccentOn, primaryContainer = Mint, onPrimaryContainer = PineDark,
+                    secondary = Amber, onSecondary = AccentOn, secondaryContainer = AmberSoft, onSecondaryContainer = PineDark,
+                    background = Paper, onBackground = PineDark, surface = CardSurface, onSurface = PineDark,
+                    error = Danger, onError = AccentOn, outline = GridLine,
+                )
+                else -> lightColorScheme(
+                    primary = Pine, onPrimary = AccentOn, primaryContainer = Mint, onPrimaryContainer = PineDark,
+                    secondary = Amber, onSecondary = AccentOn, secondaryContainer = AmberSoft, onSecondaryContainer = PineDark,
+                    background = Paper, onBackground = PineDark, surface = CardSurface, onSurface = PineDark,
+                    error = Danger, onError = AccentOn, outline = GridLine,
+                )
+            }
             MaterialTheme(
-                colorScheme=lightColorScheme(primary=Pine,onPrimary=Color.White,primaryContainer=Mint,
-                    background=Paper,surface=Color.White,onSurface=PineDark,secondary=Amber),
-                shapes=Shapes(medium=RoundedCornerShape(20.dp),large=RoundedCornerShape(28.dp))
-            ) { RepereApp(this, openCheckIn) }
+                colorScheme = colorScheme,
+                shapes = Shapes(medium = RoundedCornerShape(20.dp), large = RoundedCornerShape(28.dp)),
+            ) {
+                RepereApp(
+                    activity, openCheckIn,
+                    dynamicColorSupported = dynamicColorSupported, dynamicColorEnabled = dynamicColor,
+                    onDynamicColorChange = { enabled -> dynamicColor = enabled; AppearancePrefs.setDynamicColorEnabled(activity, enabled) },
+                )
+            }
         }
     }
 }
@@ -173,7 +199,7 @@ private enum class SyncStatus(val labelRes:Int) {
 }
 
 @Composable
-private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
+private fun RepereApp(context:Context, openCheckIn:Boolean=false, dynamicColorSupported:Boolean=false, dynamicColorEnabled:Boolean=false, onDynamicColorChange:(Boolean)->Unit={}) {
     val credentials=remember{CredentialStore(context)}
     val repository=remember{SyncRepository(context)}
     val drinks by repository.observeDrinks().collectAsState(initial=emptyList())
@@ -252,7 +278,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
         scope.launch{checkForUpdates()}
     }
 
-    Scaffold(containerColor=Paper,snackbarHost={SnackbarHost(snackbarHostState)},bottomBar={NavigationBar(containerColor=Color.White){Destination.entries.filter{it.inBar}.forEach{item ->
+    Scaffold(containerColor=Paper,snackbarHost={SnackbarHost(snackbarHostState)},bottomBar={NavigationBar(containerColor=CardSurface){Destination.entries.filter{it.inBar}.forEach{item ->
         val label=stringResource(item.labelRes)
         NavigationBarItem(selected=destination==item,onClick={destination=item},
             icon={Icon(item.icon,contentDescription=label)},
@@ -275,7 +301,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false) {
                 Destination.GOALS -> GoalsScreen(repository,goals,drinks,trackedDays,localSettings?:LocalSettings(),{synchronize()})
                 Destination.HISTORY -> HistoryScreen(visibleDrinks){clientId -> requestDelete(clientId)}
                 Destination.HEALTH -> HealthScreen(context,server,token)
-                Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)SyncStatus.SYNC_ENABLED else SyncStatus.LOCAL_ONLY},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH},onCheckUpdates={checkForUpdates(showFlow=true)})
+                Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)SyncStatus.SYNC_ENABLED else SyncStatus.LOCAL_ONLY},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH},onCheckUpdates={checkForUpdates(showFlow=true)},dynamicColorSupported=dynamicColorSupported,dynamicColorEnabled=dynamicColorEnabled,onDynamicColorChange=onDynamicColorChange)
             }
             if(updateReadyToInstall){Card(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Mint)){Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){Text(stringResource(R.string.update_ready_restart),Modifier.weight(1f),fontWeight=FontWeight.Bold);TextButton(onClick={
                 // completeUpdate() silently drops failures unless you attach a listener; without this the
@@ -306,7 +332,7 @@ private const val DAILY_GUIDELINE_STANDARDS = 3.0
 @Composable
 private fun StatusDot(status: SyncStatus) {
     val syncing = status == SyncStatus.SYNCING
-    val color = if (status == SyncStatus.UP_TO_DATE) Mint else Amber
+    val color = if (status == SyncStatus.UP_TO_DATE) HeroAccent else Amber
     if (syncing) {
         val pulse = rememberInfiniteTransition(label = "syncPulse")
         val alpha by pulse.animateFloat(.4f, 1f, infiniteRepeatable(tween(700, easing = LinearEasing), RepeatMode.Reverse), label = "syncPulseAlpha")
@@ -325,21 +351,21 @@ private fun DaySummaryCard(isToday: Boolean, dayKey: String, standards: Double, 
     )
     val progress by animateFloatAsState((standards / DAILY_GUIDELINE_STANDARDS).toFloat().coerceIn(0f, 1f), animationSpec = tween(700), label = "standardsProgress")
     val overGuideline = standards > DAILY_GUIDELINE_STANDARDS
-    Card(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = PineDark), shape = RoundedCornerShape(28.dp)) {
+    Card(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = HeroSurface), shape = RoundedCornerShape(28.dp)) {
         Column(Modifier.padding(24.dp)) {
-            Text(if (isToday) stringResource(R.string.today_caps) else dayKey, color = Mint.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Text(if (isToday) stringResource(R.string.today_caps) else dayKey, color = HeroAccent.copy(alpha = .75f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             Text(String.format(Locale.getDefault(), "%.1f", animatedStandards), color = Color.White, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
-            Text(pluralStringResource(R.plurals.canadian_standards_label, if (standards >= 2) 2 else 1), color = Mint)
+            Text(pluralStringResource(R.plurals.canadian_standards_label, if (standards >= 2) 2 else 1), color = HeroAccent)
             Spacer(Modifier.height(14.dp))
             Box(Modifier.fillMaxWidth().height(8.dp).background(Color.White.copy(alpha = .16f), RoundedCornerShape(6.dp))) {
-                Box(Modifier.fillMaxWidth(progress.coerceAtLeast(.02f)).height(8.dp).background(if (overGuideline) Amber else Mint, RoundedCornerShape(6.dp)))
+                Box(Modifier.fillMaxWidth(progress.coerceAtLeast(.02f)).height(8.dp).background(if (overGuideline) Amber else HeroAccent, RoundedCornerShape(6.dp)))
             }
             Text(
                 stringResource(if (overGuideline) R.string.guideline_over else R.string.guideline_within, fmtDouble(DAILY_GUIDELINE_STANDARDS)),
-                Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelSmall, color = Mint.copy(alpha = .8f),
+                Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelSmall, color = HeroAccent.copy(alpha = .8f),
             )
             if (isToday) {
-                Spacer(Modifier.height(14.dp)); HorizontalDivider(color = Mint.copy(alpha = .25f))
+                Spacer(Modifier.height(14.dp)); HorizontalDivider(color = HeroAccent.copy(alpha = .25f))
                 Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     StatusDot(status)
                     Spacer(Modifier.width(8.dp)); Text(stringResource(status.labelRes), color = Color.White, style = MaterialTheme.typography.bodySmall)
@@ -663,14 +689,14 @@ private fun PresetEditorDialog(repository:SyncRepository, preset:PresetEntity, o
                 OutlinedTextField(type, { type = it }, label = { Text(stringResource(R.string.field_type)) }, singleLine = true)
                 OutlinedTextField(volume, { volume = it.filter(Char::isDigit) }, label = { Text(stringResource(R.string.field_volume_ml)) }, singleLine = true, keyboardOptions = numeric)
                 OutlinedTextField(abv, { abv = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, label = { Text(stringResource(R.string.field_alcohol_percent)) }, singleLine = true, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
-                message?.let { Text(it, color = Color(0xFFD9534F), style = MaterialTheme.typography.bodySmall) }
+                message?.let { Text(it, color = Danger, style = MaterialTheme.typography.bodySmall) }
                 if (!isNew) TextButton(onClick = {
                     scope.launch {
                         busy = true
                         runCatching { repository.deletePresetLocal(preset) }
                             .onSuccess { onSaved() }.onFailure { message = it.message ?: context.getString(R.string.delete_failed); busy = false }
                     }
-                }) { Text(stringResource(R.string.preset_delete), color = Color(0xFFD9534F)) }
+                }) { Text(stringResource(R.string.preset_delete), color = Danger) }
             }
         },
         confirmButton = {
@@ -689,7 +715,7 @@ private fun PresetEditorDialog(repository:SyncRepository, preset:PresetEntity, o
 /** Groups related settings under a titled card with a leading icon, for a consistent, scannable layout. */
 @Composable
 private fun SettingsSection(icon:ImageVector,title:String,subtitle:String?=null,content:@Composable ColumnScope.()->Unit) {
-    Card(colors=CardDefaults.cardColors(containerColor=Color.White),modifier=Modifier.fillMaxWidth()){
+    Card(colors=CardDefaults.cardColors(containerColor=CardSurface),modifier=Modifier.fillMaxWidth()){
         Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
                 Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(Mint),contentAlignment=Alignment.Center){
@@ -788,7 +814,7 @@ private fun BodyMetricsSection(context:Context) {
 private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
     val credentials=remember{CredentialStore(context)};val weight=credentials.bacWeightKg();val ratio=credentials.bacDistributionRatio()
     val profile=if(weight!=null&&ratio!=null)BacProfile(weight,ratio,credentials.bacEliminationRate())else null
-    if(profile==null){Card(Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White)){Text(stringResource(R.string.bac_profile_missing_offline),Modifier.padding(20.dp),color=Pine.copy(alpha=.7f))};return}
+    if(profile==null){Card(Modifier.padding(horizontal=20.dp,vertical=8.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=CardSurface)){Text(stringResource(R.string.bac_profile_missing_offline),Modifier.padding(20.dp),color=Pine.copy(alpha=.7f))};return}
     var now by remember{mutableStateOf(OffsetDateTime.now())}
     LaunchedEffect(Unit){while(true){kotlinx.coroutines.delay(60_000);now=OffsetDateTime.now()}}
     val allDrinks=remember(drinks){drinks.mapNotNull{d->runCatching{BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789,d.active)}.getOrNull()}}
@@ -797,7 +823,7 @@ private fun BacCard(context:Context,drinks:List<DrinkEntity>) {
     val future=bacAt(localDrinks,profile,now.plusMinutes(10))*10;val trend=stringResource(if(future>current+.01)R.string.bac_trend_up else if(future<current-.01)R.string.bac_trend_down else R.string.bac_trend_stable)
     val zero=(1..24*12).firstOrNull{bacAt(localDrinks,profile,now.plusMinutes(it*5L))<=.00001}?.let{now.plusMinutes(it*5L)}
     val animatedCurrent by animateFloatAsState(current.toFloat(), animationSpec = tween(650), label = "bacCurrent")
-    Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) {
+    Card(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = CardSurface), shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
             Text(stringResource(R.string.bac_estimated_caps), style = MaterialTheme.typography.labelSmall, color = Pine.copy(alpha = .6f), fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.Bottom) {
@@ -874,7 +900,7 @@ private fun HistoricalBacCard(context:Context,drinks:List<DrinkEntity>) {
     val peak=remember(drinks,weight,ratio) {
         if(weight==null||ratio==null)null else peakBac(drinks.mapNotNull { d -> runCatching { BacDrink(parseDrinkTime(d.startedAt),d.durationMinutes,d.volumeMl*d.quantity*d.abvPercent/100*.789) }.getOrNull() },BacProfile(weight,ratio,credentials.bacEliminationRate()))
     }
-    Card(Modifier.padding(horizontal=20.dp,vertical=10.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=Color.White),shape=RoundedCornerShape(22.dp)) {
+    Card(Modifier.padding(horizontal=20.dp,vertical=10.dp).fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=CardSurface),shape=RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(20.dp)) {
             Text(stringResource(R.string.bac_peak_title),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
             if(peak!=null)Text(stringResource(R.string.bac_peak_value,String.format(Locale.getDefault(),"%.2f",peak*10)),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Black,color=Pine)
@@ -919,8 +945,8 @@ private fun LastCheckInCard(checkIns:List<CheckInEntity>, day:LocalDate, refresh
 
 @Composable
 private fun DrinkRow(drink:DrinkEntity,onEdit:(()->Unit)?=null,onDelete:(()->Unit)?=null) {
-    Row(Modifier.padding(horizontal=20.dp,vertical=6.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(18.dp)).padding(start=16.dp,top=8.dp,bottom=8.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){
-        Box(Modifier.size(42.dp).background(if(drink.dirty)Color(0xFFFFE8C2) else Mint,RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center){Text(if(drink.dirty)"↥" else "✓",fontWeight=FontWeight.Bold,color=Pine)}
+    Row(Modifier.padding(horizontal=20.dp,vertical=6.dp).fillMaxWidth().background(CardSurface,RoundedCornerShape(18.dp)).padding(start=16.dp,top=8.dp,bottom=8.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){
+        Box(Modifier.size(42.dp).background(if(drink.dirty)AmberSoft else Mint,RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center){Text(if(drink.dirty)"↥" else "✓",fontWeight=FontWeight.Bold,color=Pine)}
         Column(Modifier.padding(start=12.dp).weight(1f)){Text(drink.name,fontWeight=FontWeight.Bold)
             Text(stringResource(R.string.drink_row_summary,runCatching{parseDrinkTime(drink.startedAt).format(DateTimeFormatter.ofPattern("HH:mm"))}.getOrDefault(""),drink.volumeMl.toInt(),drink.abvPercent.toString(),drink.quantity),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
         if(onEdit!=null)IconButton(onClick=onEdit){Icon(Icons.Filled.Edit,stringResource(R.string.action_edit),tint=Pine)}
@@ -974,10 +1000,10 @@ private fun HealthScreen(context:Context,server:String,token:String) {
         Text(stringResource(R.string.health_available_data),Modifier.padding(20.dp),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
         HealthConnectBridge.granularPermissions.forEach{(type,permission) ->
             val label=HEALTH_LONG_LABELS[type]?.let{stringResource(it)}?:type
-            Row(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(16.dp)).padding(16.dp),verticalAlignment=Alignment.CenterVertically){Text(label,Modifier.weight(1f));Text(stringResource(if(permission in granted)R.string.health_allowed else R.string.health_not_shared),color=if(permission in granted)Pine else Pine.copy(alpha=.5f),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.labelMedium)}
+            Row(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth().background(CardSurface,RoundedCornerShape(16.dp)).padding(16.dp),verticalAlignment=Alignment.CenterVertically){Text(label,Modifier.weight(1f));Text(stringResource(if(permission in granted)R.string.health_allowed else R.string.health_not_shared),color=if(permission in granted)Pine else Pine.copy(alpha=.5f),fontWeight=FontWeight.Bold,style=MaterialTheme.typography.labelMedium)}
         }
         Button(onClick={launcher.launch(HealthConnectBridge.granularPermissions.values.toSet()+HealthConnectBridge.HISTORY_PERMISSION)},enabled=bridge.available(),modifier=Modifier.padding(horizontal=20.dp,vertical=14.dp).fillMaxWidth()){Text(stringResource(R.string.health_choose_permissions))}
-        if(bridge.backgroundAvailable())Row(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth().background(Color.White,RoundedCornerShape(16.dp)).padding(16.dp),verticalAlignment=Alignment.CenterVertically){
+        if(bridge.backgroundAvailable())Row(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth().background(CardSurface,RoundedCornerShape(16.dp)).padding(16.dp),verticalAlignment=Alignment.CenterVertically){
             Column(Modifier.weight(1f)){Text(stringResource(R.string.health_background_title),fontWeight=FontWeight.Bold);Text(stringResource(R.string.health_background_subtitle),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
             Switch(checked=backgroundGranted,onCheckedChange={enabled -> if(enabled)backgroundLauncher.launch(setOf(HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)) else {backgroundGranted=false;HealthConnectWorker.disable(context);message=context.getString(R.string.health_background_disabled)}})
         }
@@ -1000,7 +1026,7 @@ private fun HealthScreen(context:Context,server:String,token:String) {
 }
 
 @Composable
-private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List<DrinkEntity>,localSettings:LocalSettings,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:SyncStatus,onOpenHistory:()->Unit,onOpenHealth:()->Unit,onCheckUpdates:suspend()->Boolean) {
+private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List<DrinkEntity>,localSettings:LocalSettings,server:String,onServer:(String)->Unit,token:String,onToken:(String)->Unit,syncEnabled:Boolean,onSyncEnabled:(Boolean)->Unit,status:SyncStatus,onOpenHistory:()->Unit,onOpenHealth:()->Unit,onCheckUpdates:suspend()->Boolean,dynamicColorSupported:Boolean=false,dynamicColorEnabled:Boolean=false,onDynamicColorChange:(Boolean)->Unit={}) {
     val credentials=remember{CredentialStore(context)};val statusLabel=stringResource(status.labelRes);var message by remember{mutableStateOf(statusLabel)};val scope=rememberCoroutineScope()
     var showUpToDateDialog by remember{mutableStateOf(false)}
     var dayStart by remember{mutableIntStateOf(localSettings.dayStartHour)};var sessionGap by remember{mutableStateOf(localSettings.sessionGapHours)}
@@ -1088,6 +1114,11 @@ private fun SettingsScreen(context:Context,repository:SyncRepository,drinks:List
                             notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                         }else{reminderOn=true;CheckInReminder.setEnabled(context,true);scope.launch{CheckInReminder.refreshAndSchedule(context)};message=context.getString(R.string.settings_reminder_on)}
                     })
+                }
+                if(dynamicColorSupported)Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                    Column(Modifier.weight(1f)){Text(stringResource(R.string.settings_dynamic_color),fontWeight=FontWeight.Bold)
+                        Text(stringResource(R.string.settings_dynamic_color_subtitle),style=MaterialTheme.typography.bodySmall,color=Pine.copy(alpha=.65f))}
+                    Switch(checked=dynamicColorEnabled,onCheckedChange=onDynamicColorChange)
                 }
                 OutlinedButton(onClick=onOpenHealth,modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_health_data))}
                 OutlinedButton(onClick=onOpenHistory,modifier=Modifier.fillMaxWidth()){Text(stringResource(R.string.settings_full_history))}
