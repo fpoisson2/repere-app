@@ -15,8 +15,8 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "ca.repere.app"; minSdk = 28; targetSdk = 36
-        versionCode = providers.gradleProperty("MOBILE_VERSION_CODE").orNull?.toInt() ?: 36010021
-        versionName = providers.gradleProperty("MOBILE_VERSION_NAME").orNull ?: "1.7.0"
+        versionCode = providers.gradleProperty("MOBILE_VERSION_CODE").orNull?.toInt() ?: 36010022
+        versionName = providers.gradleProperty("MOBILE_VERSION_NAME").orNull ?: "1.7.1"
     }
     buildFeatures { compose = true; buildConfig = true }
     defaultConfig {

@@ -12,12 +12,17 @@ class ConfigListenerService : WearableListenerService() {
         var touched = false
         events.filter { it.type == DataEvent.TYPE_CHANGED && it.dataItem.uri.path == "/repere/config" }.forEach {
             val map = DataMapItem.fromDataItem(it.dataItem).dataMap
-            getSharedPreferences("repere",MODE_PRIVATE).edit()
-                .putBoolean("active",map.getBoolean("active"))
-                .putLong("active_started_at",map.getLong("active_started_at"))
+            val prefs=getSharedPreferences("repere",MODE_PRIVATE)
+            val phoneStateAt=map.getLong("synced_at");val localActionAt=prefs.getLong("local_action_at",0L)
+            val edit=prefs.edit()
                 .putFloat("today_standard",map.getFloat("today_standard"))
                 .putFloat("bac_g_per_l",map.getFloat("bac_g_per_l"))
-                .putString("bac_trend",map.getString("bac_trend")?:"stable").apply()
+                .putString("bac_trend",map.getString("bac_trend")?:"stable")
+            // A delayed DataItem must never undo a start/finish performed locally on the watch.
+            // A later phone publication may still reconcile state after queued commands arrive.
+            if(phoneStateAt>=localActionAt)edit.putBoolean("active",map.getBoolean("active"))
+                .putLong("active_started_at",map.getLong("active_started_at"))
+            edit.apply()
             touched = true
         }
         // The phone owns the offline state; redraw directly from the received cache.

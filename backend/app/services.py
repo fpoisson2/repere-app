@@ -163,7 +163,9 @@ def bac_at(drinks, user, moment):
 def bac_projection(drinks, user, now=None):
     now=now or datetime.now(); start=min([d.started_at for d in drinks]+[now])-timedelta(hours=1)
     points=[]
-    for i in range(0, 24*12+1):
+    # The input commonly contains the previous 36 hours. A fixed 24-hour scan from the
+    # oldest drink can therefore stop before `now` and miss today's actual peak.
+    for i in range(0, 7*24*12+1):
         moment=start+timedelta(minutes=5*i); bac, remaining, active=bac_at(drinks,user,moment)
         points.append({"at":moment.isoformat(),"bac_percent":bac,"remaining_grams":remaining})
         if moment>now and bac==0 and not active: break

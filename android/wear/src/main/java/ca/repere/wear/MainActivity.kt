@@ -15,6 +15,7 @@ import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUp
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
         prefs.edit()
             .putBoolean("active", active)
             .putLong("active_started_at", if (active) startedAtMillis else 0L)
+            .putLong("local_action_at", System.currentTimeMillis())
             .putFloat("today_standard", todayStandard)
             .apply()
         requestComplicationUpdate()
@@ -41,11 +43,14 @@ class MainActivity : ComponentActivity() {
     @Composable private fun QuickDrink() {
         val prefs = remember { getSharedPreferences("repere", MODE_PRIVATE) }
         var active by remember { mutableStateOf(prefs.getBoolean("active", false)) }
+        var activeStartedAt by remember { mutableLongStateOf(prefs.getLong("active_started_at", 0L)) }
         var volume by remember { mutableIntStateOf(prefs.getInt("volume", 473)) }
         var abv by remember { mutableFloatStateOf(prefs.getFloat("abv", 5f)) }
         var todayStandard by remember { mutableFloatStateOf(prefs.getFloat("today_standard", 0f)) }
         var message by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }
+        var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         val scope = rememberCoroutineScope()
+        LaunchedEffect(active) { while(active){clock=System.currentTimeMillis();delay(1_000)} }
         fun toggle() = scope.launch {
             if (busy) return@launch; busy = true
             runCatching { if (active) Api.finish(this@MainActivity) else Api.start(this@MainActivity, volume, abv) }
@@ -58,6 +63,7 @@ class MainActivity : ComponentActivity() {
                         val raw = result.optString("started_at_utc").ifBlank { result.optString("started_at") }
                         if (raw.isNotBlank()) parseInstantMillis(raw) else Instant.now().toEpochMilli()
                     } else 0L
+                    activeStartedAt = startedAt
                     // Always persist the toggle locally: the phone's own state push (via the Data
                     // Layer) can lag well behind this response, and until it arrives this is the
                     // only record that a consumption just started or ended.
@@ -72,6 +78,7 @@ class MainActivity : ComponentActivity() {
             val listener = SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
                 when (key) {
                     "active" -> active = p.getBoolean("active", false)
+                    "active_started_at" -> activeStartedAt = p.getLong("active_started_at", 0L)
                     "today_standard" -> todayStandard = p.getFloat("today_standard", 0f)
                 }
             }
@@ -80,6 +87,9 @@ class MainActivity : ComponentActivity() {
         }
         Column(Modifier.fillMaxSize().padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(if (active) "En cours" else "Prêt", style = MaterialTheme.typography.title2)
+            if(active && activeStartedAt>0L){
+                val seconds=((clock-activeStartedAt).coerceAtLeast(0L)/1_000);Text("%02d:%02d".format(seconds/60,seconds%60),style=MaterialTheme.typography.title1)
+            }
             if (!active) {
                 Text("${volume} ml · ${"%.1f".format(abv)} %")
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {

@@ -9,6 +9,7 @@ class DrinkIn(BaseModel):
     quantity: int = Field(default=1, ge=1)
     started_at: datetime
     duration_minutes: int = Field(default=30, ge=0)
+    is_active: bool = False
     notes: str | None = None
     cost: float | None = None
     timezone_id: str | None = Field(default=None, max_length=64)

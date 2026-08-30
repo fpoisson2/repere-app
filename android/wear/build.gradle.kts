@@ -15,8 +15,8 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "ca.repere.app"; minSdk = 30; targetSdk = 35
-        versionCode = providers.gradleProperty("WEAR_VERSION_CODE").orNull?.toInt() ?: 35010023
-        versionName = providers.gradleProperty("WEAR_VERSION_NAME").orNull ?: "1.2.1"
+        versionCode = providers.gradleProperty("WEAR_VERSION_CODE").orNull?.toInt() ?: 35010024
+        versionName = providers.gradleProperty("WEAR_VERSION_NAME").orNull ?: "1.2.2"
     }
     buildFeatures { compose = true }
     signingConfigs {

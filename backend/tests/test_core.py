@@ -184,7 +184,7 @@ def test_mobile_sync_snapshot_changes_deletions_and_idempotency(client):
     token=client.post("/api/wear/pair",json={"code":code,"device_name":"Android"}).json()["token"]
     auth={"Authorization":f"Bearer {token}"}
     payload={"drink_name":"Hors ligne","volume_ml":341,"abv_percent":5,
-      "started_at":"2026-08-24T20:00:00","duration_minutes":30}
+      "started_at":"2026-08-24T20:00:00","duration_minutes":0,"is_active":True}
     mutation={"mutation_id":"mobile-create-1","operation":"create","data":payload}
     first=client.post("/api/sync",headers=auth,json={"mutations":[mutation]}).json()["results"][0]
     replay=client.post("/api/sync",headers=auth,json={"mutations":[mutation]}).json()["results"][0]
@@ -192,9 +192,17 @@ def test_mobile_sync_snapshot_changes_deletions_and_idempotency(client):
     assert client.post("/api/days/sober",json={"date":"2026-08-23"}).status_code==200
     snapshot=client.get("/api/sync?cursor=0",headers=auth).json()
     assert snapshot["snapshot"] is True and snapshot["changes"][0]["payload"]["drink_name"]=="Hors ligne"
+    assert snapshot["changes"][0]["payload"]["is_active"] is True
     assert snapshot["bac_profile"]["weight_kg"]>0 and snapshot["bac_profile"]["distribution_ratio"]>0
     assert snapshot["tracked_days"]==[{"day":"2026-08-23","sober":True}]
     cursor=snapshot["cursor"]
+    finished={**payload,"duration_minutes":42,"is_active":False}
+    update={"mutation_id":"mobile-finish-1","operation":"update","server_id":first["server_id"],"data":finished}
+    assert client.post("/api/sync",headers=auth,json={"mutations":[update]}).status_code==200
+    finish_change=client.get(f"/api/sync?cursor={cursor}",headers=auth).json()
+    assert finish_change["changes"][-1]["payload"]["duration_minutes"]==42
+    assert finish_change["changes"][-1]["payload"]["is_active"] is False
+    cursor=finish_change["cursor"]
     deletion={"mutation_id":"mobile-delete-1","operation":"delete","server_id":first["server_id"]}
     assert client.post("/api/sync",headers=auth,json={"mutations":[deletion]}).status_code==200
     changes=client.get(f"/api/sync?cursor={cursor}",headers=auth).json()
@@ -211,6 +219,15 @@ def test_bac_uses_client_local_clock_and_plausible_gl_units(client):
     data=client.get("/api/bac?now=2026-08-27T14:42:00").json()
     assert data["current_bac_percent"]>0
     assert .1<data["peak_bac_percent"]*10<.5
+
+def test_bac_peak_scan_reaches_now_when_previous_day_is_in_window(client):
+    client.patch("/api/settings",json={"weight_kg":75,"height_cm":175,"sex":"male"})
+    client.post("/api/drinks",json={"drink_name":"Veille","volume_ml":341,"abv_percent":5,"started_at":"2026-08-28T08:00:00","duration_minutes":30})
+    for hour in (17,18,19):
+        client.post("/api/drinks",json={"drink_name":"Aujourd'hui","volume_ml":473,"abv_percent":6,"started_at":f"2026-08-29T{hour}:00:00","duration_minutes":30})
+    current=client.get("/api/bac?now=2026-08-29T20:00:00").json()
+    day=client.get("/api/bac/day?day=2026-08-29").json()
+    assert current["peak_bac_percent"]==day["peak"]["bac_percent"]
 
 def test_change_password_logs_out(client):
     response=client.post("/api/auth/change-password",json={"current_password":"motdepasse","new_password":"nouveaumotdepasse"})

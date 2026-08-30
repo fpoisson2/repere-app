@@ -213,7 +213,7 @@ class SyncRepository(context: Context) {
 
     private fun DrinkEntity.toJson()=JSONObject().put("drink_name",name).put("drink_type",type)
         .put("volume_ml",volumeMl).put("abv_percent",abvPercent).put("quantity",quantity)
-        .put("started_at",startedAt).put("duration_minutes",durationMinutes)
+        .put("started_at",startedAt).put("duration_minutes",durationMinutes).put("is_active",active)
         .put("timezone_id",ZoneId.systemDefault().id)
         .put("utc_offset_minutes",runCatching { OffsetDateTime.parse(startedAt).offset.totalSeconds / 60 }.getOrNull())
         .put("notes",notes).put("cost",JSONObject.NULL)
