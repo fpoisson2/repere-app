@@ -66,6 +66,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -118,6 +120,7 @@ import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -198,11 +201,26 @@ private enum class SyncStatus(val labelRes:Int) {
     PENDING_DELETE(R.string.status_pending_delete), SYNC_ENABLED(R.string.status_sync_enabled),
 }
 
+/** Centered spinner shown in place of a data-heavy screen until Room's first emission lands, instead of an empty->full pop. */
+@Composable
+private fun LoadingIndicator() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(color = Pine)
+    }
+}
+
 @Composable
 private fun RepereApp(context:Context, openCheckIn:Boolean=false, dynamicColorSupported:Boolean=false, dynamicColorEnabled:Boolean=false, onDynamicColorChange:(Boolean)->Unit={}) {
+    var showOnboarding by remember { mutableStateOf(!OnboardingPrefs.hasSeenOnboarding(context)) }
+    if (showOnboarding) {
+        OnboardingScreen(onDone = { OnboardingPrefs.setSeenOnboarding(context); showOnboarding = false })
+        return
+    }
+    val haptic = LocalHapticFeedback.current
     val credentials=remember{CredentialStore(context)}
     val repository=remember{SyncRepository(context)}
-    val drinks by repository.observeDrinks().collectAsState(initial=emptyList())
+    var contentLoaded by remember { mutableStateOf(false) }
+    val drinks by remember{repository.observeDrinks().onEach{contentLoaded=true}}.collectAsState(initial=emptyList())
     val presets by repository.observePresets().collectAsState(initial=emptyList())
     val trackedDays by repository.observeTrackedDays().collectAsState(initial=emptyList())
     val checkIns by repository.observeCheckIns().collectAsState(initial=emptyList())
@@ -287,7 +305,7 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false, dynamicColorSu
         Box(Modifier.padding(padding).fillMaxSize()){
             when(destination){
                 Destination.NOW -> MaintenantScreen(context,repository,visibleDrinks,presets,trackedDays,checkIns,localSettings?:LocalSettings(),status,openCheckIn,{synchronize()},
-                    onCustom={name,volume,abv,quantity,startedAt,duration -> scope.launch{
+                    onCustom={name,volume,abv,quantity,startedAt,duration -> haptic.performHapticFeedback(HapticFeedbackType.LongPress); scope.launch{
                         repository.createCustom(name,volume,abv,quantity,startedAt,duration);status=if(syncEnabled)SyncStatus.PENDING_SEND else SyncStatus.KEPT_LOCALLY;synchronize()
                     }},
                     onEdit={id,name,volume,abv,quantity,startedAt,duration -> scope.launch{
@@ -295,11 +313,11 @@ private fun RepereApp(context:Context, openCheckIn:Boolean=false, dynamicColorSu
                     }},
                     onDelete={id -> requestDelete(id)},
                     onSober={day,sober->scope.launch{repository.setSoberDay(day,sober)}})
-                Destination.STATS -> StatsScreen(context,analysisDrinks,trackedDays,healthRows,localSettings?:LocalSettings())
-                Destination.INSIGHTS -> InsightsScreen(analysisDrinks,checkIns,localSettings?:LocalSettings())
-                Destination.SUCCESS -> SuccessScreen(analysisDrinks,trackedDays,checkIns,goals,localSettings?:LocalSettings())
-                Destination.GOALS -> GoalsScreen(repository,goals,drinks,trackedDays,localSettings?:LocalSettings(),{synchronize()})
-                Destination.HISTORY -> HistoryScreen(visibleDrinks){clientId -> requestDelete(clientId)}
+                Destination.STATS -> if(contentLoaded)StatsScreen(context,analysisDrinks,trackedDays,healthRows,localSettings?:LocalSettings())else LoadingIndicator()
+                Destination.INSIGHTS -> if(contentLoaded)InsightsScreen(analysisDrinks,checkIns,localSettings?:LocalSettings())else LoadingIndicator()
+                Destination.SUCCESS -> if(contentLoaded)SuccessScreen(analysisDrinks,trackedDays,checkIns,goals,localSettings?:LocalSettings())else LoadingIndicator()
+                Destination.GOALS -> if(contentLoaded)GoalsScreen(repository,goals,drinks,trackedDays,localSettings?:LocalSettings(),{synchronize()})else LoadingIndicator()
+                Destination.HISTORY -> if(contentLoaded)HistoryScreen(visibleDrinks){clientId -> requestDelete(clientId)}else LoadingIndicator()
                 Destination.HEALTH -> HealthScreen(context,server,token)
                 Destination.SETTINGS -> SettingsScreen(context,repository,drinks,localSettings?:LocalSettings(),server,{server=it},token,{token=it;syncEnabled=credentials.syncEnabled();destination=Destination.NOW},syncEnabled,{enabled->syncEnabled=enabled;status=if(enabled)SyncStatus.SYNC_ENABLED else SyncStatus.LOCAL_ONLY},status,onOpenHistory={destination=Destination.HISTORY},onOpenHealth={destination=Destination.HEALTH},onCheckUpdates={checkForUpdates(showFlow=true)},dynamicColorSupported=dynamicColorSupported,dynamicColorEnabled=dynamicColorEnabled,onDynamicColorChange=onDynamicColorChange)
             }
@@ -392,6 +410,7 @@ private fun MaintenantScreen(
     onCustom:(String,Double,Double,Int,String,Int)->Unit,
     onEdit:(String,String,Double,Double,Int,String,Int)->Unit, onDelete:(String)->Unit, onSober:(String,Boolean)->Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
     var day by remember { mutableStateOf(LocalDate.now()) }
     val isToday = day == LocalDate.now()
     val dayKey = day.toString()
@@ -539,7 +558,7 @@ private fun MaintenantScreen(
         scope.launch {
             runCatching { repository.saveCheckIn(payload) }
                 .onFailure { dayMessage = it.message ?: context.getString(R.string.checkin_not_sent) }
-                .onSuccess { checkInSuccess = true; checkInRefresh++; onSync() }
+                .onSuccess { haptic.performHapticFeedback(HapticFeedbackType.LongPress); checkInSuccess = true; checkInRefresh++; onSync() }
         }
         checkIn = false
     }
