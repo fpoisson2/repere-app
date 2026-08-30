@@ -557,6 +557,8 @@
     <string name="settings_reminder_on">Check-in reminder enabled</string>
     <string name="settings_reminder_off">Check-in reminder disabled</string>
     <string name="settings_notification_denied">Notification permission denied</string>
+    <string name="settings_dynamic_color">Dynamic colors (Material You)</string>
+    <string name="settings_dynamic_color_subtitle">Use your wallpaper colors instead of the Repère palette</string>
     <string name="settings_health_data">Health data (Health Connect)</string>
     <string name="settings_full_history">Full history</string>
     <string name="country_canada">Canada</string>

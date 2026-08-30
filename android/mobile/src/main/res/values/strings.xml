@@ -557,6 +557,8 @@
     <string name="settings_reminder_on">Rappel de check-in activé</string>
     <string name="settings_reminder_off">Rappel de check-in désactivé</string>
     <string name="settings_notification_denied">Autorisation de notification refusée</string>
+    <string name="settings_dynamic_color">Couleurs dynamiques (Material You)</string>
+    <string name="settings_dynamic_color_subtitle">Reprendre les couleurs du fond d\'écran plutôt que la palette Repère</string>
     <string name="settings_health_data">Données de santé (Health Connect)</string>
     <string name="settings_full_history">Historique complet</string>
     <string name="country_canada">Canada</string>

@@ -1,6 +1,9 @@
 package ca.repere.mobile
 
 import android.content.Context
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -73,7 +76,7 @@ private fun PageHeaderLite(eyebrow: String, title: String) {
 private fun SectionCard(title: String, subtitle: String? = null, body: @Composable ColumnScope.() -> Unit) {
     Card(
         Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
         shape = RoundedCornerShape(22.dp),
     ) {
         Column(Modifier.padding(20.dp)) {
@@ -177,7 +180,7 @@ private fun DrawScope.gridlines() {
 private fun DrawScope.thresholdLine(threshold: Double?, max: Double) {
     threshold?.let { t ->
         val y = (size.height - (t / max * size.height)).toFloat()
-        drawLine(Color(0xFFD9534F), Offset(0f, y), Offset(size.width, y), 3f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 9f)))
+        drawLine(Danger, Offset(0f, y), Offset(size.width, y), 3f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 9f)))
     }
 }
 
@@ -246,6 +249,14 @@ private fun MetricChips(metric: String, onSelect: (String) -> Unit) {
     }
 }
 
+/** Animates 0→1 whenever [key] changes, so a chart's bars/lines grow in instead of popping in fully drawn. */
+@Composable
+private fun chartReveal(key: Any?): Float {
+    val progress = remember(key) { Animatable(0f) }
+    LaunchedEffect(key) { progress.animateTo(1f, tween(650, easing = FastOutSlowInEasing)) }
+    return progress.value
+}
+
 @Composable
 private fun BarChart(
     values: List<Double>, colors: List<Color>, threshold: Double? = null, modifier: Modifier = Modifier,
@@ -254,6 +265,7 @@ private fun BarChart(
 ) {
     val max = (values.maxOrNull() ?: 0.0).coerceAtLeast(threshold ?: 0.0).coerceAtLeast(0.01)
     var selected by remember(values) { mutableStateOf<Int?>(null) }
+    val reveal = chartReveal(values)
     Column {
         Row(Modifier.fillMaxWidth()) {
             ChartYAxis(max, height)
@@ -268,7 +280,7 @@ private fun BarChart(
                 val gap = if (values.size > 40) 1f else 3f
                 val bw = (slot - gap).coerceAtLeast(1.5f)
                 values.forEachIndexed { i, v ->
-                    val h = (v / max * size.height).toFloat()
+                    val h = (v / max * size.height).toFloat() * reveal
                     if (h > 0f) drawRect(colors.getOrElse(i) { Pine }, Offset(i * slot + gap / 2, size.height - h), Size(bw, h.coerceAtLeast(2f)))
                 }
                 thresholdLine(threshold, max)
@@ -299,6 +311,7 @@ private fun ComboChart(
         .coerceAtLeast(threshold ?: 0.0)
         .coerceAtLeast(0.01)
     var selected by remember(bars) { mutableStateOf<Int?>(null) }
+    val reveal = chartReveal(bars)
     Column {
         Row(Modifier.fillMaxWidth()) {
             ChartYAxis(max, height)
@@ -311,9 +324,9 @@ private fun ComboChart(
                 if (bars.isEmpty()) return@Canvas
                 val slot = size.width / bars.size
                 fun center(i: Int) = (i + .5f) * slot
-                fun y(v: Double) = (size.height - (v / max * size.height)).toFloat()
+                fun y(v: Double) = size.height - (v / max * size.height).toFloat() * reveal
                 bars.forEachIndexed { i, v ->
-                    val h = (v / max * size.height).toFloat()
+                    val h = (v / max * size.height).toFloat() * reveal
                     if (h > 0f) drawRect(Pine.copy(alpha = .22f), Offset(i * slot + .5f, size.height - h.coerceAtLeast(2f)), Size((slot - 1f).coerceAtLeast(1.5f), h.coerceAtLeast(2f)))
                 }
                 thresholdLine(threshold, max)
@@ -331,7 +344,7 @@ private fun ComboChart(
                     drawLine(Amber, Offset(x, 0f), Offset(x, size.height), 3f)
                     drawCircle(Amber, 9f, Offset(x, y(bars[i])))
                     lines.forEach { (color, series) ->
-                        series.getOrNull(i)?.let { v -> drawCircle(Color.White, 11f, Offset(x, y(v))); drawCircle(color, 8f, Offset(x, y(v))) }
+                        series.getOrNull(i)?.let { v -> drawCircle(CardSurface, 11f, Offset(x, y(v))); drawCircle(color, 8f, Offset(x, y(v))) }
                     }
                 }
             }
@@ -341,7 +354,7 @@ private fun ComboChart(
             buildList {
                 add(Pine.copy(alpha = .22f) to barName)
                 lines.forEachIndexed { n, pair -> movingNames.getOrNull(n)?.let { add(pair.first to it) } }
-                if (threshold != null && thresholdName != null) add(Color(0xFFD9534F) to thresholdName)
+                if (threshold != null && thresholdName != null) add(Danger to thresholdName)
             },
         )
         val i = selected
@@ -365,6 +378,7 @@ private fun LineChart(
     val max = present.maxOrNull() ?: 1.0
     val span = (max - min).takeIf { it > 0 } ?: 1.0
     var selected by remember(values) { mutableStateOf<Int?>(null) }
+    val reveal = chartReveal(values)
     fun index(x: Float, width: Int): Int = if (values.size <= 1) 0 else ((x / width) * (values.size - 1) + .5f).toInt().coerceIn(0, values.lastIndex)
     Column {
         Row(Modifier.fillMaxWidth()) {
@@ -377,7 +391,10 @@ private fun LineChart(
                 gridlines()
                 if (present.size < 2) return@Canvas
                 val step = size.width / (values.size - 1).coerceAtLeast(1)
-                fun y(v: Double) = (size.height - ((v - min) / span * size.height)).toFloat()
+                fun y(v: Double): Float {
+                    val target = (size.height - ((v - min) / span * size.height)).toFloat()
+                    return size.height + (target - size.height) * reveal
+                }
                 val path = Path(); var started = false
                 values.forEachIndexed { i, v ->
                     if (v == null) { started = false; return@forEachIndexed }
@@ -388,7 +405,7 @@ private fun LineChart(
                 selected?.let { i ->
                     val x = i * step
                     drawLine(Amber, Offset(x, 0f), Offset(x, size.height), 3f)
-                    values[i]?.let { v -> drawCircle(Color.White, 11f, Offset(x, y(v))); drawCircle(Amber, 8f, Offset(x, y(v))) }
+                    values[i]?.let { v -> drawCircle(CardSurface, 11f, Offset(x, y(v))); drawCircle(Amber, 8f, Offset(x, y(v))) }
                 }
             }
         }
@@ -413,6 +430,7 @@ private fun ScatterChart(
     valueText: (Double) -> String = { fmt(it, 2) },
 ) {
     var selected by remember(values) { mutableStateOf<Int?>(null) }
+    val reveal = chartReveal(values)
     Column {
         Row(Modifier.fillMaxWidth()) {
             ChartYAxis(max, height)
@@ -425,13 +443,16 @@ private fun ScatterChart(
                 if (values.isEmpty()) return@Canvas
                 val slot = size.width / values.size
                 fun center(i: Int) = (i + .5f) * slot
-                fun y(v: Double) = (size.height - (v / max * size.height)).toFloat()
+                fun y(v: Double): Float {
+                    val target = (size.height - (v / max * size.height)).toFloat()
+                    return size.height + (target - size.height) * reveal
+                }
                 val radius = (slot * .38f).coerceIn(3.5f, 9f)
                 values.forEachIndexed { i, v -> drawCircle(color.copy(alpha = .75f), radius, Offset(center(i), y(v))) }
                 selected?.let { i ->
                     val x = center(i)
                     drawLine(Amber, Offset(x, 0f), Offset(x, size.height), 3f)
-                    drawCircle(Color.White, radius + 4f, Offset(x, y(values[i]))); drawCircle(Amber, radius + 1f, Offset(x, y(values[i])))
+                    drawCircle(CardSurface, radius + 4f, Offset(x, y(values[i]))); drawCircle(Amber, radius + 1f, Offset(x, y(values[i])))
                 }
             }
         }
@@ -445,10 +466,11 @@ private fun ScatterChart(
 @Composable
 private fun DivergingBars(
     values: List<Double?>, labels: List<String> = emptyList(), unit: String = "", modifier: Modifier = Modifier,
-    height: Dp = 190.dp, xLabels: List<String> = emptyList(), upColor: Color = Color(0xFFD9534F), downColor: Color = Pine,
+    height: Dp = 190.dp, xLabels: List<String> = emptyList(), upColor: Color = Danger, downColor: Color = Pine,
 ) {
     val bound = (values.filterNotNull().maxOfOrNull { abs(it) } ?: 0.0).coerceAtLeast(0.01)
     var selected by remember(values) { mutableStateOf<Int?>(null) }
+    val reveal = chartReveal(values)
     Column {
         Row(Modifier.fillMaxWidth()) {
             ChartYAxis(bound, height, -bound)
@@ -466,9 +488,11 @@ private fun DivergingBars(
                 drawLine(Pine.copy(alpha = .45f), Offset(0f, zero), Offset(size.width, zero), 2.5f)
                 values.forEachIndexed { i, v ->
                     if (v == null) return@forEachIndexed
-                    val h = (abs(v) / bound * (size.height / 2)).toFloat().coerceAtLeast(2f)
-                    val top = if (v >= 0) zero - h else zero
-                    drawRect(if (v >= 0) upColor.copy(alpha = .8f) else downColor.copy(alpha = .8f), Offset(i * slot + gap / 2, top), Size(bw, h))
+                    val h = (abs(v) / bound * (size.height / 2)).toFloat() * reveal
+                    if (h <= 0f) return@forEachIndexed
+                    val hc = h.coerceAtLeast(2f)
+                    val top = if (v >= 0) zero - hc else zero
+                    drawRect(if (v >= 0) upColor.copy(alpha = .8f) else downColor.copy(alpha = .8f), Offset(i * slot + gap / 2, top), Size(bw, hc))
                 }
                 selected?.let { i ->
                     drawRect(Amber.copy(alpha = .22f), Offset(i * slot, 0f), Size(slot, size.height))
@@ -524,7 +548,7 @@ private fun CalendarHeatmap(days: List<LocalStatDay>, selected: LocalStatDay?, o
                                 when {
                                     day == null -> Color.Transparent
                                     day == selected -> Amber
-                                    !day.observed -> Color(0xFFE2E5E3)
+                                    !day.observed -> GridLine
                                     day.sober -> Mint.copy(alpha = .85f)
                                     else -> Pine.copy(alpha = (.25 + .75 * day.grams / max).toFloat())
                                 },
@@ -674,7 +698,7 @@ private data class LocalPeriod(val label:String,val standards:Double,val alcohol
     SectionCard(stringResource(R.string.stats_calendar_title),stringResource(R.string.stats_calendar_subtitle)){
         CalendarHeatmap(days,selected){selected=it}
         Spacer(Modifier.height(10.dp))
-        ChartLegend(listOf(Color(0xFFE2E5E3) to stringResource(R.string.stats_legend_no_data),Mint.copy(alpha=.85f) to stringResource(R.string.stats_legend_sober),Pine.copy(alpha=.45f) to stringResource(R.string.stats_legend_low),Pine to stringResource(R.string.stats_legend_high)))
+        ChartLegend(listOf(GridLine to stringResource(R.string.stats_legend_no_data),Mint.copy(alpha=.85f) to stringResource(R.string.stats_legend_sober),Pine.copy(alpha=.45f) to stringResource(R.string.stats_legend_low),Pine to stringResource(R.string.stats_legend_high)))
         val day=selected
         if(day!=null)ChartSelection(day.date.format(dayDate()),
             if(!day.observed)stringResource(R.string.chart_no_data) else if(day.sober)stringResource(R.string.stats_sober_day_value) else stringResource(R.string.stats_day_value,fmt(day.grams,1),fmt(day.standards,2)),
@@ -726,7 +750,7 @@ private fun periodLabel(label:String,monthly:Boolean):String = runCatching{Local
     }}
 
 @Composable private fun DistributionChart(days:List<LocalStatDay>){val observed=days.filter{it.observed};val labels=stringArrayResource(R.array.stats_intensity_buckets);val values=listOf(observed.count{it.sober},observed.count{it.standards in .000001..1.0},observed.count{it.standards>1&&it.standards<=2},observed.count{it.standards>2&&it.standards<=4},observed.count{it.standards>4}).map{it.toDouble()}
-    val colors=listOf(Mint,Pine.copy(alpha=.4f),Pine.copy(alpha=.65f),Amber,Color(0xFFD9534F))
+    val colors=listOf(Mint,Pine.copy(alpha=.4f),Pine.copy(alpha=.65f),Amber,Danger)
     SectionCard(stringResource(R.string.stats_distribution_days_title),stringResource(R.string.stats_distribution_days_subtitle)){CategoryBars(labels.mapIndexed{i,l->CatBar(l,values[i],colors[i],if(observed.isEmpty())null else stringResource(R.string.stats_percent_of_observed,fmt(values[i]*100.0/observed.size,0)))},stringResource(R.string.unit_days),0)}}
 
 @Composable private fun FirstDrinkChart(days:List<LocalStatDay>){val rows=days.mapNotNull{day->day.drinks.minByOrNull{it.startedAt}?.let{d->runCatching{parseDrinkTime(d.startedAt).let{day.date to (it.hour+it.minute/60.0)}}.getOrNull()}}
@@ -741,7 +765,7 @@ private fun periodLabel(label:String,monthly:Boolean):String = runCatching{Local
     SectionCard(stringResource(R.string.stats_daytoday_title),stringResource(R.string.stats_daytoday_subtitle)){
         if(changes.count{it!=null}<2){Text(stringResource(R.string.stats_daytoday_empty),style=MaterialTheme.typography.bodyLarge,color=Pine.copy(alpha=.7f));return@SectionCard}
         DivergingBars(changes,labels=rows.map{it.date.format(dayDate())},unit=stringResource(R.string.unit_standards),xLabels=dateTicks(rows.map{it.date}))
-        ChartLegend(listOf(Pine to stringResource(R.string.stats_legend_down),Color(0xFFD9534F) to stringResource(R.string.stats_legend_up)))
+        ChartLegend(listOf(Pine to stringResource(R.string.stats_legend_down),Danger to stringResource(R.string.stats_legend_up)))
     }}
 
 private fun List<Double>.averageOrNull()=if(isEmpty())null else average()
@@ -998,7 +1022,7 @@ fun GoalsScreen(repository:SyncRepository,localGoals:List<GoalEntity>,drinks:Lis
                             runCatching { repository.deleteGoal(g.getString("client_id")) }
                                 .onSuccess { onSync() }.onFailure { error = it.message }
                         }
-                    }) { Text(stringResource(R.string.goals_remove), color = Color(0xFFD9534F)) }
+                    }) { Text(stringResource(R.string.goals_remove), color = Danger) }
                 }
             }
             Spacer(Modifier.height(28.dp))
