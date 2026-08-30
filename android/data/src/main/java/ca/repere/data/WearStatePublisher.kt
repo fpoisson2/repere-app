@@ -1,9 +1,7 @@
-package ca.repere.mobile
+package ca.repere.data
 
 import android.content.Context
 import ca.repere.core.*
-import ca.repere.data.DrinkEntity
-import ca.repere.data.LocalSettings
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import java.time.LocalDate

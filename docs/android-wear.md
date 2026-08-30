@@ -22,7 +22,7 @@ Health Connect n’envoie que des agrégats quotidiens. Une journée sans enregi
 
 La base Repère reste la source de vérité. Une consommation démarrée depuis la montre est immédiatement créée avec `is_active=true`. Lorsque l’utilisateur la termine, l’API enregistre l’heure de fin et calcule la durée réelle. Le volume, le taux d’alcool et la quantité sont fixés dès le démarrage et peuvent ensuite être corrigés dans l’interface web.
 
-L’application téléphone transmet l’adresse du serveur et le jeton à la montre par le Wear OS Data Layer. La montre communique ensuite directement avec l’API, par le réseau relayé du téléphone, le Wi-Fi ou sa connexion cellulaire.
+La montre ne parle jamais directement à l’API web : elle relaie chaque commande (démarrer/terminer une consommation) au téléphone par le Wear OS Data Layer (`MessageClient`), et c’est le téléphone qui l’exécute contre le serveur ou la stocke localement s’il est hors ligne. Le téléphone repousse ensuite l’état à jour (consommation active, alcoolémie estimée, total du jour) à la montre par un `DataItem` du même Data Layer, aussi bien après une action de la montre qu’après ses propres synchronisations périodiques.
 
 ## Association
 

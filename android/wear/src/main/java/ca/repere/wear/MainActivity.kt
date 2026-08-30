@@ -54,18 +54,29 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putInt("volume", volume).putFloat("abv", abv).apply()
                     val queued = result.optBoolean("queued")
                     message = if (queued) "Enregistré hors ligne" else if (active) "Début enregistré" else "Fin enregistrée"
-                    if (queued) {
-                        val startedAt = if (active) parseInstantMillis(result.optString("started_at_utc").ifBlank { result.optString("started_at") }) else 0L
-                        cacheForComplication(prefs, active, startedAt, todayStandard)
-                    } else {
-                        refreshState(prefs) { a, _, t -> active = a; todayStandard = t }
-                    }
+                    val startedAt = if (active) {
+                        val raw = result.optString("started_at_utc").ifBlank { result.optString("started_at") }
+                        if (raw.isNotBlank()) parseInstantMillis(raw) else Instant.now().toEpochMilli()
+                    } else 0L
+                    // Always persist the toggle locally: the phone's own state push (via the Data
+                    // Layer) can lag well behind this response, and until it arrives this is the
+                    // only record that a consumption just started or ended.
+                    cacheForComplication(prefs, active, startedAt, todayStandard)
                 }
                 .onFailure { message = it.message ?: "Synchronisation impossible" }
             busy = false
         }
-        LaunchedEffect(Unit) {
-            refreshState(prefs) { a, _, t -> active = a; todayStandard = t }
+        // The phone may correct this state later (e.g. once its own sync catches up), so keep
+        // listening for as long as the screen is open instead of only reading prefs once.
+        DisposableEffect(prefs) {
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+                when (key) {
+                    "active" -> active = p.getBoolean("active", false)
+                    "today_standard" -> todayStandard = p.getFloat("today_standard", 0f)
+                }
+            }
+            prefs.registerOnSharedPreferenceChangeListener(listener)
+            onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
         }
         Column(Modifier.fillMaxSize().padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(if (active) "En cours" else "Prêt", style = MaterialTheme.typography.title2)
@@ -80,11 +91,6 @@ class MainActivity : ComponentActivity() {
             Button(onClick = { toggle() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "…" else if (active) "Terminer" else "Démarrer") }
             if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.body2)
         }
-    }
-
-    private suspend fun refreshState(prefs: SharedPreferences, apply: (active: Boolean, startedAtMillis: Long, todayStandard: Float) -> Unit) {
-        val isActive=prefs.getBoolean("active",false);val startedAt=prefs.getLong("active_started_at",0L);val today=prefs.getFloat("today_standard",0f)
-        apply(isActive,startedAt,today)
     }
 
     private fun parseInstantMillis(value: String): Long = runCatching {

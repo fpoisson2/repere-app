@@ -69,9 +69,16 @@ a 6-digit pairing code). Trust the code; update that doc when you get the chance
   mathematically aligned whenever the model changes. Always display the driving disclaimer.
 - **Day bucketing** uses the user's `day_start_hour` (default 8). Server endpoints that need
   "today" in the user's timezone accept the client's local time (see `/api/wear/state?now=`).
-- **Watch refresh.** After a phone sync, `pokeWatch()` bumps `/repere/config`; the watch's
-  `ConfigListenerService` + `StateCache.refresh()` re-pull `/api/wear/state` so complications
-  track deletions/edits without opening the watch app.
+- **The watch never talks to the API directly.** It only exchanges data with the paired phone
+  over the Wear OS Data Layer (`MessageClient` for commands, `DataItem` for state); the phone is
+  the only client that ever calls the backend. A wear action (`/repere/proxy/request`) is relayed
+  through `WearProxyListenerService`, which applies it to the phone's local Room state (queuing it
+  for `/api/sync` like any other offline write) and immediately republishes state through
+  `WearStatePublisher` (`:data`) to `/repere/config`; `ConfigListenerService` on the watch consumes
+  that DataItem into its own `SharedPreferences` for the complications/tile to read. `SyncWorker`'s
+  periodic background sync republishes the same way, so BAC/today's count keep tracking
+  deletions/edits without opening either app. Credentials (server + token) travel on a distinct
+  `/repere/credentials` DataItem so a credentials push never resets the watch's active-drink state.
 
 ## Conventions
 
