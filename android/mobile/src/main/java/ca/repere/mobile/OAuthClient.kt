@@ -45,10 +45,10 @@ object OAuthClient {
     suspend fun complete(context: Context, redirect: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val creds = CredentialStore(context)
-            val pending = JSONObject(creds.oauthTransient().ifBlank { error("Aucune connexion en cours") })
-            redirect.getQueryParameter("error")?.let { error(friendlyError(it)) }
-            val code = redirect.getQueryParameter("code") ?: error("Code d'autorisation manquant")
-            require(redirect.getQueryParameter("state") == pending.getString("s")) { "Réponse OAuth inattendue" }
+            val pending = JSONObject(creds.oauthTransient().ifBlank { error(context.getString(R.string.oauth_no_pending)) })
+            redirect.getQueryParameter("error")?.let { error(friendlyError(context, it)) }
+            val code = redirect.getQueryParameter("code") ?: error(context.getString(R.string.oauth_missing_code))
+            require(redirect.getQueryParameter("state") == pending.getString("s")) { context.getString(R.string.oauth_unexpected_response) }
             val server = pending.getString("server")
             val json = form(
                 "$server/api/oauth/token",
@@ -90,9 +90,9 @@ object OAuthClient {
         creds.clear()
     }
 
-    private fun friendlyError(code: String) = when (code) {
-        "access_denied" -> "Autorisation refusée"
-        else -> "Connexion impossible ($code)"
+    private fun friendlyError(context: Context, code: String) = when (code) {
+        "access_denied" -> context.getString(R.string.oauth_access_denied)
+        else -> context.getString(R.string.oauth_failed, code)
     }
 
     private fun randomToken(bytes: Int): String {
@@ -121,7 +121,7 @@ object OAuthClient {
         val text = (if (ok) connection.inputStream else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
         if (!ok) {
             val detail = runCatching { JSONObject(text).optString("error_description") }.getOrNull()
-            error(detail?.takeIf { it.isNotBlank() } ?: "Erreur ${connection.responseCode}")
+            error(detail?.takeIf { it.isNotBlank() } ?: "HTTP ${connection.responseCode}")
         }
         return JSONObject(text.ifBlank { "{}" })
     }

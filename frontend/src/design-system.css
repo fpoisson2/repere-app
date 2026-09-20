@@ -28,6 +28,7 @@
   --accent-soft: #dff3eb;
   --accent-contrast: #fff;
   --danger: #b64040;
+  --warning: #8a6d13;
   --sober: #2f855a;
   --page: #f4f6f3;
   --page-glow: rgba(19, 122, 90, 0.06);
@@ -73,6 +74,7 @@ html {
   --accent-soft: #173b30;
   --accent-contrast: #092219;
   --danger: #ff9690;
+  --warning: #d9b970;
   --sober: #49a96c;
   --page: #0d1210;
   --page-glow: rgba(98, 205, 167, 0.07);

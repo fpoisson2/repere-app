@@ -1,0 +1,13 @@
+<resources>
+    <!-- Favourites seeded on first launch. These are editable data, not labels: they are written
+         once, in whatever language is active at that moment. -->
+    <string name="default_preset_beer_333">Beer 333 ml</string>
+    <string name="default_preset_beer_473">Beer 473 ml</string>
+    <string name="default_preset_wine_150">Wine 150 ml</string>
+    <string name="default_preset_spirits_43">Spirits 43 ml</string>
+    <string name="default_preset_type_beer">beer</string>
+    <string name="default_preset_type_wine">wine</string>
+    <string name="default_preset_type_spirits">spirits</string>
+    <string name="error_http">Error %1$d</string>
+    <string name="wear_drink_name">Wear OS drink</string>
+</resources>

@@ -41,10 +41,10 @@ object Net {
     private suspend fun authenticatedGet(context:Context,path:String):String {
         val creds = CredentialStore(context)
         return try {
-            get(creds.server().trimEnd('/'), creds.token(), path)
+            get(context, creds.server().trimEnd('/'), creds.token(), path)
         } catch (e: HttpError) {
             if (e.code == 401 && OAuthClient.refresh(context)) {
-                get(CredentialStore(context).server().trimEnd('/'), CredentialStore(context).token(), path)
+                get(context, CredentialStore(context).server().trimEnd('/'), CredentialStore(context).token(), path)
             } else throw e
         }
     }
@@ -76,13 +76,13 @@ object Net {
         val legacy=runCatching{JSONArray(creds.pendingApiOperations())}.getOrDefault(JSONArray());for(i in 0 until legacy.length()){val op=legacy.getJSONObject(i);operations.enqueue(PendingApiOperation(op.getString("id"),op.getString("path"),op.getString("method"),op.getJSONObject("body").toString()))};if(legacy.length()>0)creds.setPendingApiOperations("[]")
         val queue=operations.pending()
         for(op in queue){
-            val result=runCatching{write(creds.server().trimEnd('/'),creds.token(),op.path,JSONObject(op.body),op.method)}
+            val result=runCatching{write(context,creds.server().trimEnd('/'),creds.token(),op.path,JSONObject(op.body),op.method)}
             if(result.isSuccess)operations.complete(op.id) else {operations.failed(op,result.exceptionOrNull()?.message);throw result.exceptionOrNull()!!}
         }
     }
 
-    private fun write(server: String, token: String, path: String, body: JSONObject, method: String): String {
-        if (server.isBlank() || token.isBlank()) throw HttpError(401, "Non connecté")
+    private fun write(context: Context, server: String, token: String, path: String, body: JSONObject, method: String): String {
+        if (server.isBlank() || token.isBlank()) throw HttpError(401, context.getString(R.string.error_not_signed_in))
         val connection = URL(server + path).openConnection() as HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 10_000
@@ -96,13 +96,13 @@ object Net {
             ?.bufferedReader()?.use { it.readText() }.orEmpty()
         if (code !in 200..299) {
             val detail = runCatching { JSONObject(text).optString("detail") }.getOrNull()
-            throw HttpError(code, detail?.takeIf { it.isNotBlank() } ?: "Erreur $code")
+            throw HttpError(code, detail?.takeIf { it.isNotBlank() } ?: context.getString(R.string.error_http, code))
         }
         return text
     }
 
-    private fun get(server: String, token: String, path: String): String {
-        if (server.isBlank() || token.isBlank()) throw HttpError(401, "Non connecté")
+    private fun get(context: Context, server: String, token: String, path: String): String {
+        if (server.isBlank() || token.isBlank()) throw HttpError(401, context.getString(R.string.error_not_signed_in))
         val connection = URL(server + path).openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = 10_000
@@ -114,7 +114,7 @@ object Net {
             ?.bufferedReader()?.use { it.readText() }.orEmpty()
         if (code !in 200..299) {
             val detail = runCatching { JSONObject(body).optString("detail") }.getOrNull()
-            throw HttpError(code, detail?.takeIf { it.isNotBlank() } ?: "Erreur $code")
+            throw HttpError(code, detail?.takeIf { it.isNotBlank() } ?: context.getString(R.string.error_http, code))
         }
         return body
     }

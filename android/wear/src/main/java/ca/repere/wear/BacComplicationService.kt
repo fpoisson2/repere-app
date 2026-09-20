@@ -27,7 +27,7 @@ class BacComplicationService : SuspendingComplicationDataSourceService() {
     private fun build(type: ComplicationType, gPerL: Float, trend: String): ComplicationData {
         val value = String.format(Locale.getDefault(), "%.2f", gPerL)
         val icon = MonochromaticImage.Builder(Icon.createWithResource(this, R.drawable.ic_bac)).build()
-        val description = PlainComplicationText.Builder("Répère : alcoolémie estimée $value g/L ($trend)").build()
+        val description = PlainComplicationText.Builder(getString(R.string.wear_bac_description, value, trend)).build()
         return when (type) {
             ComplicationType.RANGED_VALUE ->
                 RangedValueComplicationData.Builder(
@@ -41,7 +41,7 @@ class BacComplicationService : SuspendingComplicationDataSourceService() {
                 MonochromaticImageComplicationData.Builder(icon, description).setTapAction(openApp()).build()
             else ->
                 ShortTextComplicationData.Builder(
-                    PlainComplicationText.Builder("$value g/L").build(), description,
+                    PlainComplicationText.Builder(getString(R.string.wear_bac_value, value)).build(), description,
                 ).setMonochromaticImage(icon).setTapAction(openApp()).build()
         }
     }

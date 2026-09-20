@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">Repère</string>
+    <string name="complication_drinks_label">Repère · drinks</string>
+    <string name="complication_bac_label">Repère · blood alcohol</string>
+    <string name="tile_label">Repère</string>
+    <string name="wear_ready">Ready</string>
+    <string name="wear_in_progress">In progress</string>
+    <string name="wear_start">Start</string>
+    <string name="wear_finish">Finish</string>
+    <string name="wear_busy">…</string>
+    <string name="wear_start_saved">Start saved</string>
+    <string name="wear_end_saved">End saved</string>
+    <string name="wear_saved_offline">Saved offline</string>
+    <string name="wear_sync_failed">Sync failed</string>
+    <string name="wear_phone_not_connected">Phone not connected</string>
+    <string name="wear_drink_summary">%1$d ml · %2$s %%</string>
+    <string name="wear_abv_down">−%%</string>
+    <string name="wear_abv_up">+%%</string>
+    <string name="wear_open">Open</string>
+    <string name="wear_bac_value">%1$s g/L</string>
+    <string name="wear_bac_tile">Estimated blood alcohol %1$s g/L</string>
+    <string name="wear_bac_description">Repère: estimated blood alcohol %1$s g/L (%2$s)</string>
+    <string name="wear_drink_in_progress">Drink in progress</string>
+    <string name="wear_standards_today">standard drinks today</string>
+    <string name="wear_drink_in_progress_description">Repère: drink in progress</string>
+    <string name="wear_standards_description">Repère: standard drinks today</string>
+    <string name="wear_unit_ml">ml</string>
+</resources>
