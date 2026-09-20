@@ -6,6 +6,8 @@ import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import java.time.LocalDate
 import java.time.OffsetDateTime
+import org.json.JSONArray
+import org.json.JSONObject
 
 object WearStatePublisher {
     fun publish(context:Context,drinks:List<DrinkEntity>,settings:LocalSettings){
@@ -15,10 +17,17 @@ object WearStatePublisher {
         val current=profile?.let{bacAt(inputs,it,now)*10}?:0.0;val future=profile?.let{bacAt(inputs,it,now.plusMinutes(10))*10}?:current
         val todayStandard=drinks.filter{runCatching{trackedDay(it.startedAt,settings.dayStartHour)==LocalDate.now()}.getOrDefault(false)}.sumOf{canadianStandards(it.volumeMl,it.abvPercent,it.quantity,settings.standardDrinkGrams)}
         val active=drinks.firstOrNull{it.active}
+        val watchDrinks=drinks.filter{it.active||runCatching{!parseDrinkTime(it.startedAt).isBefore(now.minusHours(36))}.getOrDefault(false)}
         val request=PutDataMapRequest.create("/repere/config").apply{dataMap.putLong("synced_at",System.currentTimeMillis())
             dataMap.putBoolean("active",active!=null);dataMap.putLong("active_started_at",active?.let{runCatching{parseDrinkTime(it.startedAt).toInstant().toEpochMilli()}.getOrDefault(0L)}?:0L)
             dataMap.putFloat("today_standard",todayStandard.toFloat());dataMap.putFloat("bac_g_per_l",current.toFloat())
-            dataMap.putString("bac_trend",if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable")}.asPutDataRequest().setUrgent()
+            dataMap.putString("bac_trend",if(future>current+.01)"hausse"else if(future<current-.01)"baisse"else"stable")
+            dataMap.putDouble("bac_weight_kg",weight?:Double.NaN);dataMap.putDouble("bac_distribution_ratio",ratio?:Double.NaN)
+            dataMap.putDouble("bac_elimination_rate",credentials.bacEliminationRate());dataMap.putDouble("standard_drink_grams",settings.standardDrinkGrams)
+            dataMap.putInt("day_start_hour",settings.dayStartHour)
+            dataMap.putString("bac_inputs",JSONArray().apply{watchDrinks.forEach{d->put(JSONObject().put("id",d.clientId).put("started_at",d.startedAt)
+                .put("duration_minutes",d.durationMinutes).put("alcohol_grams",d.volumeMl*d.quantity*d.abvPercent/100*.789).put("active",d.active))}}.toString())
+        }.asPutDataRequest().setUrgent()
         Wearable.getDataClient(context).putDataItem(request)
     }
 }

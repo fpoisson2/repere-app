@@ -22,7 +22,7 @@ class QuickDrinkComplicationService : SuspendingComplicationDataSourceService() 
             request.complicationType,
             active = prefs.getBoolean("active", false),
             startedAtMillis = prefs.getLong("active_started_at", 0L),
-            todayStandard = prefs.getFloat("today_standard", 0f).toDouble(),
+            todayStandard = prefs.getFloat("today_standard_local", prefs.getFloat("today_standard", 0f)).toDouble(),
         )
     }
 

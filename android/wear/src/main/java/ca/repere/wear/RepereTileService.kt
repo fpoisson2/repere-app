@@ -35,7 +35,7 @@ class RepereTileService : TileService() {
             runCatching { StateCache.refresh(this@RepereTileService) }
             val prefs = getSharedPreferences("repere", MODE_PRIVATE)
             val active = prefs.getBoolean("active", false)
-            val today = prefs.getFloat("today_standard", 0f)
+            val today = prefs.getFloat("today_standard_local", prefs.getFloat("today_standard", 0f))
             val bac = prefs.getFloat("bac_g_per_l", 0f)
             val primary = if (today > 10) today.toInt().toString() else String.format(Locale.getDefault(), "%.1f", today)
             val secondary = if (active) "Consommation en cours" else "cons. standard aujourd'hui"

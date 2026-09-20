@@ -24,18 +24,19 @@ class MainActivity : ComponentActivity() {
         setContent { MaterialTheme { QuickDrink() } }
     }
 
-    private fun requestComplicationUpdate() =
-        ComplicationDataSourceUpdateRequester
-            .create(this, ComponentName(this, QuickDrinkComplicationService::class.java))
-            .requestUpdateAll()
+    private fun requestComplicationUpdate() {
+        listOf(QuickDrinkComplicationService::class.java,BacComplicationService::class.java).forEach{service->
+            ComplicationDataSourceUpdateRequester.create(this,ComponentName(this,service)).requestUpdateAll()
+        }
+        androidx.wear.tiles.TileService.getUpdater(this).requestUpdate(RepereTileService::class.java)
+    }
 
     /** Persist the bits the complication renders from, then ask it to redraw. */
-    private fun cacheForComplication(prefs: SharedPreferences, active: Boolean, startedAtMillis: Long, todayStandard: Float) {
+    private fun cacheForComplication(prefs: SharedPreferences, active: Boolean, startedAtMillis: Long) {
         prefs.edit()
             .putBoolean("active", active)
             .putLong("active_started_at", if (active) startedAtMillis else 0L)
             .putLong("local_action_at", System.currentTimeMillis())
-            .putFloat("today_standard", todayStandard)
             .apply()
         requestComplicationUpdate()
     }
@@ -50,6 +51,7 @@ class MainActivity : ComponentActivity() {
         var message by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         val scope = rememberCoroutineScope()
+        LaunchedEffect(Unit){StateCache.refresh(this@MainActivity);todayStandard=prefs.getFloat("today_standard_local",prefs.getFloat("today_standard",0f))}
         LaunchedEffect(active) { while(active){clock=System.currentTimeMillis();delay(1_000)} }
         fun toggle() = scope.launch {
             if (busy) return@launch; busy = true
@@ -67,7 +69,7 @@ class MainActivity : ComponentActivity() {
                     // Always persist the toggle locally: the phone's own state push (via the Data
                     // Layer) can lag well behind this response, and until it arrives this is the
                     // only record that a consumption just started or ended.
-                    cacheForComplication(prefs, active, startedAt, todayStandard)
+                    cacheForComplication(prefs, active, startedAt)
                 }
                 .onFailure { message = it.message ?: "Synchronisation impossible" }
             busy = false
@@ -80,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     "active" -> active = p.getBoolean("active", false)
                     "active_started_at" -> activeStartedAt = p.getLong("active_started_at", 0L)
                     "today_standard" -> todayStandard = p.getFloat("today_standard", 0f)
+                    "today_standard_local" -> todayStandard = p.getFloat("today_standard_local", 0f)
                 }
             }
             prefs.registerOnSharedPreferenceChangeListener(listener)

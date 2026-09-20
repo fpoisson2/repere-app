@@ -31,6 +31,7 @@ object Api {
             networkCall(context, current)
         }.getOrElse {
             enqueue(context, current)
+            StateCache.refresh(context)
             WearSyncWorker.schedule(context)
             JSONObject().put("queued", true)
         }
